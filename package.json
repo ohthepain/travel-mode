@@ -1,0 +1,80 @@
+{
+  "name": "travelmode",
+  "private": true,
+  "type": "module",
+  "imports": {
+    "#/*": "./src/*"
+  },
+  "scripts": {
+    "dev": "vite dev --port 3000",
+    "build": "prisma generate && vite build",
+    "preview": "vite preview",
+    "postinstall": "prisma generate",
+    "test": "vitest run",
+    "lint": "eslint",
+    "format": "prettier --check .",
+    "check": "prettier --write . && eslint --fix",
+    "db:generate": "prisma generate",
+    "db:migrate": "prisma migrate dev",
+    "db:studio": "prisma studio",
+    "db:push": "prisma db push",
+    "db:up": "docker compose up -d",
+    "worker": "node --import tsx ./src/worker.ts"
+  },
+  "dependencies": {
+    "@better-auth/prisma-adapter": "^1.6.6",
+    "@flightradar24/fr24sdk": "^0.1.1",
+    "@prisma/adapter-pg": "^7.7.0",
+    "@prisma/client": "^7.7.0",
+    "@tailwindcss/vite": "^4.1.18",
+    "@tanstack/react-devtools": "latest",
+    "@tanstack/react-router": "latest",
+    "@tanstack/react-router-devtools": "latest",
+    "@tanstack/react-router-ssr-query": "latest",
+    "@tanstack/react-start": "latest",
+    "@tanstack/router-plugin": "^1.132.0",
+    "@turf/turf": "^7.3.5",
+    "better-auth": "^1.6.6",
+    "better-auth-offline": "^0.0.2",
+    "dotenv": "^17.4.2",
+    "hono": "^4.12.14",
+    "idb": "^8.0.3",
+    "lucide-react": "^0.545.0",
+    "maplibre-gl": "^5.23.0",
+    "pg": "^8.20.0",
+    "pg-boss": "^12.15.0",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "tailwindcss": "^4.1.18",
+    "zustand": "^5.0.12"
+  },
+  "devDependencies": {
+    "@tailwindcss/typography": "^0.5.16",
+    "@tanstack/devtools-vite": "latest",
+    "@tanstack/eslint-config": "latest",
+    "@testing-library/dom": "^10.4.1",
+    "@testing-library/react": "^16.3.0",
+    "@types/geojson": "^7946.0.16",
+    "@types/node": "^22.10.2",
+    "@types/pg": "^8.20.0",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "@vitejs/plugin-react": "^6.0.1",
+    "jsdom": "^28.1.0",
+    "prettier": "^3.8.1",
+    "prisma": "^7.7.0",
+    "tsx": "^4.21.0",
+    "typescript": "^5.7.2",
+    "vite": "^8.0.0",
+    "vite-plugin-pwa": "^1.2.0",
+    "vitest": "^3.0.5"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild",
+      "lightningcss",
+      "prisma",
+      "@prisma/engines"
+    ]
+  }
+}

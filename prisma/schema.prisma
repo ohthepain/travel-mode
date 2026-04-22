@@ -1,0 +1,95 @@
+// travelmode — Better Auth + flight tracks
+// https://www.prisma.io/docs/orm
+
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+/// Better Auth — table name `user`
+model User {
+  id            String    @id
+  name          String
+  email         String
+  emailVerified Boolean   @default(false)
+  image         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  sessions      Session[]
+  accounts      Account[]
+
+  @@unique([email])
+  @@map("user")
+}
+
+model Session {
+  id        String   @id
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token     String   @unique
+  expiresAt DateTime
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("session")
+}
+
+model Account {
+  id                    String    @id
+  userId                String
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accountId             String
+  providerId            String
+  accessToken           String?
+  refreshToken          String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  idToken               String?
+  password              String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  @@map("account")
+}
+
+model Verification {
+  id         String   @id
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@map("verification")
+}
+
+/// One stored track per FR24 flight id (historical)
+model Track {
+  id              String   @id @default(cuid())
+  /// IATA-style e.g. UA123
+  flightNumber    String
+  /// Calendar date in UTC (time component ignored)
+  travelDate      DateTime @db.Date
+  /// FR24 flight id from summary
+  fr24FlightId    String   @unique
+  routeGeojson    Json
+  corridorGeojson Json?
+  /// [minLon, minLat, maxLon, maxLat] in WGS84
+  bbox            Json?
+  /// First / last point epoch ms from track (for interpolation; BIGINT — ms exceeds 32-bit int)
+  firstTimestampMs BigInt?
+  lastTimestampMs  BigInt?
+  rawSummaryJson  Json?
+  fetchedAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([flightNumber, travelDate])
+  @@map("track")
+}
