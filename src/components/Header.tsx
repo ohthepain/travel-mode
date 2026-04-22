@@ -1,85 +1,159 @@
-import { Link } from '@tanstack/react-router'
+import { Link, useRouterState } from '@tanstack/react-router'
+import { signOut, useSession } from '../lib/auth-client'
+import { cn } from '../lib/cn'
+import { useFlightStore } from '../stores/flight'
 import ThemeToggle from './ThemeToggle'
 
-export default function Header() {
+type AppHeaderBrandProps = {
+  className?: string
+  /** Narrower type scale for the `h-14` bar. */
+  compact?: boolean
+}
+
+/** Top-left app mark; navigates home (pattern from nwords header). */
+export function AppHeaderBrand({ className, compact }: AppHeaderBrandProps) {
   return (
-    <header className="sticky top-0 z-50 border-b border-[var(--line)] bg-[var(--header-bg)] px-4 backdrop-blur-lg">
-      <nav className="page-wrap flex flex-wrap items-center gap-x-3 gap-y-2 py-3 sm:py-4">
-        <h2 className="m-0 flex-shrink-0 text-base font-semibold tracking-tight">
-          <Link
-            to="/"
-            className="inline-flex items-center gap-2 rounded-full border border-[var(--chip-line)] bg-[var(--chip-bg)] px-3 py-1.5 text-sm text-[var(--sea-ink)] no-underline shadow-[0_8px_24px_rgba(30,90,72,0.08)] sm:px-4 sm:py-2"
-          >
-            <span className="h-2 w-2 rounded-full bg-[linear-gradient(90deg,#56c6be,#7ed3bf)]" />
-            TanStack Start
-          </Link>
-        </h2>
+    <Link
+      to="/"
+      className={cn(
+        'group flex shrink-0 items-center gap-1.5 rounded-md text-[var(--sea-ink)] no-underline outline-none',
+        'focus-visible:ring-2 focus-visible:ring-[var(--lagoon)]/40',
+        'focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--header-bg)]',
+        className,
+      )}
+      aria-label="travelmode.live home"
+    >
+      <span
+        className="h-2 w-2 shrink-0 rounded-full bg-[linear-gradient(90deg,#56c6be,#7ed3bf)]"
+        aria-hidden
+      />
+      <span
+        className={cn(
+          'font-bold tracking-tight',
+          compact ? 'text-base sm:text-lg' : 'text-xl',
+        )}
+      >
+        travelmode
+      </span>
+    </Link>
+  )
+}
 
-        <div className="ml-auto flex items-center gap-1.5 sm:ml-0 sm:gap-2">
-          <a
-            href="https://x.com/tan_stack"
-            target="_blank"
-            rel="noreferrer"
-            className="hidden rounded-xl p-2 text-[var(--sea-ink-soft)] transition hover:bg-[var(--link-bg-hover)] hover:text-[var(--sea-ink)] sm:block"
-          >
-            <span className="sr-only">Follow TanStack on X</span>
-            <svg viewBox="0 0 16 16" aria-hidden="true" width="24" height="24">
-              <path
-                fill="currentColor"
-                d="M12.6 1h2.2L10 6.48 15.64 15h-4.41L7.78 9.82 3.23 15H1l5.14-5.84L.72 1h4.52l3.12 4.73L12.6 1zm-.77 12.67h1.22L4.57 2.26H3.26l8.57 11.41z"
-              />
-            </svg>
-          </a>
-          <a
-            href="https://github.com/TanStack"
-            target="_blank"
-            rel="noreferrer"
-            className="hidden rounded-xl p-2 text-[var(--sea-ink-soft)] transition hover:bg-[var(--link-bg-hover)] hover:text-[var(--sea-ink)] sm:block"
-          >
-            <span className="sr-only">Go to TanStack GitHub</span>
-            <svg viewBox="0 0 16 16" aria-hidden="true" width="24" height="24">
-              <path
-                fill="currentColor"
-                d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.012 8.012 0 0 0 16 8c0-4.42-3.58-8-8-8z"
-              />
-            </svg>
-          </a>
+const HOME_PATH = '/'
 
-          <ThemeToggle />
+export default function Header() {
+  const session = useSession()
+  const pathname = useRouterState({ select: (s) => s.location.pathname })
+  const isHome = pathname === HOME_PATH
+  const mapMode = useFlightStore((s) => s.mapMode)
+  const setMapMode = useFlightStore((s) => s.setMapMode)
+
+  const shell =
+    isHome && !mapMode
+      ? 'max-w-md px-3 sm:max-w-lg sm:px-4'
+      : 'page-wrap px-3 sm:px-4'
+
+  return (
+    <header className="sticky top-0 z-50 shrink-0 border-b border-[var(--line)] bg-[var(--header-bg)] backdrop-blur-lg">
+      <div
+        className={cn(
+          'mx-auto flex min-h-14 w-full flex-wrap items-center gap-x-2 gap-y-2 py-2 sm:flex-nowrap sm:gap-3 sm:py-0',
+          shell,
+        )}
+      >
+        <div className="flex min-w-0 flex-1 items-center gap-2 sm:contents sm:gap-0">
+          <div className="flex min-w-0 flex-1 items-center gap-2 sm:max-w-min sm:shrink-0 sm:gap-3">
+            <AppHeaderBrand compact className="min-w-0" />
+            {isHome && (
+              <button
+                type="button"
+                onClick={() => setMapMode(!mapMode)}
+                className={cn(
+                  'shrink-0 rounded-md border border-[var(--chip-line)] bg-[var(--chip-bg)] px-2.5 py-1.5',
+                  'text-xs font-semibold text-[var(--sea-ink)] sm:text-sm',
+                )}
+                aria-pressed={mapMode}
+              >
+                {mapMode ? 'Setup' : 'Map'}
+              </button>
+            )}
+          </div>
+
+          <div className="hidden min-w-0 flex-1 items-center justify-center gap-3 text-sm font-semibold sm:flex">
+            <Link
+              to="/"
+              className="nav-link"
+              activeProps={{ className: 'nav-link is-active' }}
+            >
+              Home
+            </Link>
+            <Link
+              to="/about"
+              className="nav-link"
+              activeProps={{ className: 'nav-link is-active' }}
+            >
+              About
+            </Link>
+            <Link
+              to="/admin"
+              className="nav-link"
+              activeProps={{ className: 'nav-link is-active' }}
+            >
+              Admin
+            </Link>
+          </div>
         </div>
 
-        <div className="order-3 flex w-full flex-wrap items-center gap-x-4 gap-y-1 pb-1 text-sm font-semibold sm:order-2 sm:w-auto sm:flex-nowrap sm:pb-0">
+        <div className="flex w-full flex-wrap items-center justify-end gap-1.5 sm:w-auto sm:shrink-0 sm:gap-2">
+          <ThemeToggle />
+
+          {session.data?.user ? (
+            <>
+              <span className="hidden max-w-[10rem] truncate text-xs text-[var(--sea-ink-soft)] sm:inline sm:max-w-[14rem]">
+                {session.data.user.email}
+              </span>
+              <button
+                type="button"
+                className="rounded-lg border border-[var(--chip-line)] bg-[var(--chip-bg)] px-2.5 py-1.5 text-sm font-semibold text-[var(--sea-ink)] transition hover:bg-[var(--link-bg-hover)] sm:px-3"
+                onClick={() => void signOut()}
+              >
+                Sign out
+              </button>
+            </>
+          ) : (
+            <Link
+              to="/sign-in"
+              className="rounded-lg bg-cyan-600 px-2.5 py-1.5 text-sm font-semibold text-slate-950 no-underline transition hover:opacity-90 sm:px-3"
+            >
+              Sign in
+            </Link>
+          )}
+        </div>
+
+        <div className="flex w-full items-center gap-3 overflow-x-auto border-t border-[var(--line)] py-2 [scrollbar-width:none] sm:hidden [&::-webkit-scrollbar]:hidden">
           <Link
             to="/"
-            className="nav-link"
+            className="nav-link shrink-0"
             activeProps={{ className: 'nav-link is-active' }}
           >
             Home
           </Link>
           <Link
             to="/about"
-            className="nav-link"
+            className="nav-link shrink-0"
             activeProps={{ className: 'nav-link is-active' }}
           >
             About
           </Link>
           <Link
             to="/admin"
-            className="nav-link"
+            className="nav-link shrink-0"
             activeProps={{ className: 'nav-link is-active' }}
           >
             Admin
           </Link>
-          <a
-            href="https://tanstack.com/start/latest/docs/framework/react/overview"
-            className="nav-link"
-            target="_blank"
-            rel="noreferrer"
-          >
-            Docs
-          </a>
         </div>
-      </nav>
+      </div>
     </header>
   )
 }

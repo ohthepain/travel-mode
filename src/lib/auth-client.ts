@@ -1,4 +1,5 @@
 import { createAuthClient } from 'better-auth/react'
+import { magicLinkClient } from 'better-auth/client/plugins'
 import { offlinePlugin } from 'better-auth-offline'
 
 const baseURL =
@@ -7,5 +8,13 @@ const baseURL =
 export const authClient = createAuthClient({
   baseURL,
   basePath: '/api/auth',
-  plugins: [offlinePlugin()],
+  plugins: [offlinePlugin(), magicLinkClient()],
+  fetchOptions: {
+    credentials: 'include',
+    ...(typeof window !== 'undefined' && window.location.hostname.includes('ngrok')
+      ? { headers: { 'ngrok-skip-browser-warning': '1' } }
+      : {}),
+  },
 })
+
+export const { signIn, signUp, signOut, useSession } = authClient

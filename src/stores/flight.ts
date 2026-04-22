@@ -20,6 +20,9 @@ export type FlightState = {
   correctionEN: { e: number; n: number }
   tileProgress: { done: number; total: number } | null
   useOffline: boolean
+  /** When true (home), page chrome uses full width for the map. */
+  mapMode: boolean
+  setMapMode: (v: boolean) => void
   setFlight: (f: string, d?: string) => void
   setLineFromApi: (res: unknown) => void
   setTakeoff: (d: Date) => void
@@ -57,6 +60,8 @@ export const useFlightStore = create<FlightState>((set, get) => ({
   correctionEN: { e: 0, n: 0 },
   tileProgress: null,
   useOffline: false,
+  mapMode: false,
+  setMapMode: (v) => set({ mapMode: v }),
   setFlight: (fn, d) =>
     set({ flightNumber: fn, travelDate: d ?? 'latest' }),
   setLineFromApi: (data) => {

@@ -87,6 +87,19 @@ model Track {
   firstTimestampMs BigInt?
   lastTimestampMs  BigInt?
   rawSummaryJson  Json?
+  /// IATA (from flight-summary full, when present)
+  originIata      String?
+  destIata        String?
+  originIcao      String?
+  destIcao        String?
+  takeoffAt       DateTime?
+  landedAt        DateTime?
+  scheduledDeparture DateTime?
+  scheduledArrival   DateTime?
+  /// Takeoff-to-landing duration (seconds) when provided by API
+  flightTimeSec   Int?
+  /// Extra fields from full summary (runway, reg, etc.)
+  scheduleJson    Json?
   fetchedAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 

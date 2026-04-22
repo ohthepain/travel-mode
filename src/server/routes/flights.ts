@@ -1,6 +1,10 @@
 import { Hono } from 'hono'
 import { prisma } from '../db'
-import { enqueueSyncFlight, flightAlreadySynced } from '../jobs/queue'
+import {
+  enqueueSyncFlight,
+  enqueueSyncFlightMany,
+  flightAlreadySynced,
+} from '../jobs/queue'
 import { featureCollection } from '../geojson'
 
 /**
@@ -43,15 +47,35 @@ flightRoutes.get('/:flightNumber/tracks', async (c) => {
   })
 })
 
-const queueBody = (b: { flightNumber?: string }) => {
-  if (!b.flightNumber) return { error: 'flightNumber required' } as const
-  return null
+const queueBody = (b: { flightNumber?: string; flightNumbers?: unknown }) => {
+  if (Array.isArray(b.flightNumbers) && b.flightNumbers.length > 0) return null
+  if (b.flightNumber) return null
+  return { error: 'flightNumber or non-empty flightNumbers[] required' } as const
 }
 
 flightRoutes.post('/queue', async (c) => {
-  const body = await c.req.json().catch(() => ({}))
+  const body = await c.req
+    .json()
+    .catch(() => ({}))
   const err = queueBody(body)
   if (err) return c.json(err, 400)
+
+  if (Array.isArray(body.flightNumbers) && body.flightNumbers.length > 0) {
+    const flightNumbers = body.flightNumbers
+      .map((x) => String(x).toUpperCase().trim())
+      .filter(Boolean)
+    if (process.env.SKIP_FR24_IF_SYNCED === '1') {
+      const synced = await Promise.all(
+        flightNumbers.map((n) => flightAlreadySynced(n)),
+      )
+      if (synced.every(Boolean)) {
+        return c.json({ ok: true, skipped: true, reason: 'already_synced' }, 200)
+      }
+    }
+    const id = await enqueueSyncFlightMany(flightNumbers)
+    return c.json({ ok: true, jobId: id, queued: true, flightNumbers }, 202)
+  }
+
   const flightNumber = String(body.flightNumber).toUpperCase()
   if (process.env.SKIP_FR24_IF_SYNCED === '1' && (await flightAlreadySynced(flightNumber))) {
     return c.json({ ok: true, skipped: true, reason: 'already_synced' }, 200)

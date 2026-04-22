@@ -29,6 +29,16 @@ export function trackToGeoFeature(track: Track): Feature<LineString> {
       firstTimestampMs: msForJson(track.firstTimestampMs),
       lastTimestampMs: msForJson(track.lastTimestampMs),
       fetchedAt: track.fetchedAt.toISOString(),
+      originIata: track.originIata,
+      destIata: track.destIata,
+      originIcao: track.originIcao,
+      destIcao: track.destIcao,
+      takeoffAt: track.takeoffAt?.toISOString() ?? null,
+      landedAt: track.landedAt?.toISOString() ?? null,
+      scheduledDeparture: track.scheduledDeparture?.toISOString() ?? null,
+      scheduledArrival: track.scheduledArrival?.toISOString() ?? null,
+      flightTimeSec: track.flightTimeSec,
+      scheduleJson: track.scheduleJson,
     },
   }
 }

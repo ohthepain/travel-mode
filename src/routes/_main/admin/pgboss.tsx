@@ -34,7 +34,7 @@ type JobsPayload = {
   jobs: JobRow[]
 }
 
-export const Route = createFileRoute('/admin/pgboss')({
+export const Route = createFileRoute('/_main/admin/pgboss')({
   component: PgBossPage,
 })
 

@@ -9,121 +9,147 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as AboutRouteImport } from './routes/about'
-import { Route as IndexRouteImport } from './routes/index'
-import { Route as AdminIndexRouteImport } from './routes/admin/index'
+import { Route as MainRouteRouteImport } from './routes/_main/route'
+import { Route as MainIndexRouteImport } from './routes/_main/index'
 import { Route as ApiSplatRouteImport } from './routes/api/$'
-import { Route as AdminTracksRouteImport } from './routes/admin/tracks'
-import { Route as AdminPgbossRouteImport } from './routes/admin/pgboss'
+import { Route as MainSignInRouteImport } from './routes/_main/sign-in'
+import { Route as MainResetPasswordRouteImport } from './routes/_main/reset-password'
+import { Route as MainAboutRouteImport } from './routes/_main/about'
+import { Route as MainAdminIndexRouteImport } from './routes/_main/admin/index'
+import { Route as MainAdminTracksRouteImport } from './routes/_main/admin/tracks'
+import { Route as MainAdminPgbossRouteImport } from './routes/_main/admin/pgboss'
 
-const AboutRoute = AboutRouteImport.update({
-  id: '/about',
-  path: '/about',
+const MainRouteRoute = MainRouteRouteImport.update({
+  id: '/_main',
   getParentRoute: () => rootRouteImport,
 } as any)
-const IndexRoute = IndexRouteImport.update({
+const MainIndexRoute = MainIndexRouteImport.update({
   id: '/',
   path: '/',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const AdminIndexRoute = AdminIndexRouteImport.update({
-  id: '/admin/',
-  path: '/admin/',
-  getParentRoute: () => rootRouteImport,
+  getParentRoute: () => MainRouteRoute,
 } as any)
 const ApiSplatRoute = ApiSplatRouteImport.update({
   id: '/api/$',
   path: '/api/$',
   getParentRoute: () => rootRouteImport,
 } as any)
-const AdminTracksRoute = AdminTracksRouteImport.update({
+const MainSignInRoute = MainSignInRouteImport.update({
+  id: '/sign-in',
+  path: '/sign-in',
+  getParentRoute: () => MainRouteRoute,
+} as any)
+const MainResetPasswordRoute = MainResetPasswordRouteImport.update({
+  id: '/reset-password',
+  path: '/reset-password',
+  getParentRoute: () => MainRouteRoute,
+} as any)
+const MainAboutRoute = MainAboutRouteImport.update({
+  id: '/about',
+  path: '/about',
+  getParentRoute: () => MainRouteRoute,
+} as any)
+const MainAdminIndexRoute = MainAdminIndexRouteImport.update({
+  id: '/admin/',
+  path: '/admin/',
+  getParentRoute: () => MainRouteRoute,
+} as any)
+const MainAdminTracksRoute = MainAdminTracksRouteImport.update({
   id: '/admin/tracks',
   path: '/admin/tracks',
-  getParentRoute: () => rootRouteImport,
+  getParentRoute: () => MainRouteRoute,
 } as any)
-const AdminPgbossRoute = AdminPgbossRouteImport.update({
+const MainAdminPgbossRoute = MainAdminPgbossRouteImport.update({
   id: '/admin/pgboss',
   path: '/admin/pgboss',
-  getParentRoute: () => rootRouteImport,
+  getParentRoute: () => MainRouteRoute,
 } as any)
 
 export interface FileRoutesByFullPath {
-  '/': typeof IndexRoute
-  '/about': typeof AboutRoute
-  '/admin/pgboss': typeof AdminPgbossRoute
-  '/admin/tracks': typeof AdminTracksRoute
+  '/': typeof MainIndexRoute
+  '/about': typeof MainAboutRoute
+  '/reset-password': typeof MainResetPasswordRoute
+  '/sign-in': typeof MainSignInRoute
   '/api/$': typeof ApiSplatRoute
-  '/admin/': typeof AdminIndexRoute
+  '/admin/pgboss': typeof MainAdminPgbossRoute
+  '/admin/tracks': typeof MainAdminTracksRoute
+  '/admin/': typeof MainAdminIndexRoute
 }
 export interface FileRoutesByTo {
-  '/': typeof IndexRoute
-  '/about': typeof AboutRoute
-  '/admin/pgboss': typeof AdminPgbossRoute
-  '/admin/tracks': typeof AdminTracksRoute
+  '/about': typeof MainAboutRoute
+  '/reset-password': typeof MainResetPasswordRoute
+  '/sign-in': typeof MainSignInRoute
   '/api/$': typeof ApiSplatRoute
-  '/admin': typeof AdminIndexRoute
+  '/': typeof MainIndexRoute
+  '/admin/pgboss': typeof MainAdminPgbossRoute
+  '/admin/tracks': typeof MainAdminTracksRoute
+  '/admin': typeof MainAdminIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
-  '/': typeof IndexRoute
-  '/about': typeof AboutRoute
-  '/admin/pgboss': typeof AdminPgbossRoute
-  '/admin/tracks': typeof AdminTracksRoute
+  '/_main': typeof MainRouteRouteWithChildren
+  '/_main/about': typeof MainAboutRoute
+  '/_main/reset-password': typeof MainResetPasswordRoute
+  '/_main/sign-in': typeof MainSignInRoute
   '/api/$': typeof ApiSplatRoute
-  '/admin/': typeof AdminIndexRoute
+  '/_main/': typeof MainIndexRoute
+  '/_main/admin/pgboss': typeof MainAdminPgbossRoute
+  '/_main/admin/tracks': typeof MainAdminTracksRoute
+  '/_main/admin/': typeof MainAdminIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
     | '/about'
+    | '/reset-password'
+    | '/sign-in'
+    | '/api/$'
     | '/admin/pgboss'
     | '/admin/tracks'
-    | '/api/$'
     | '/admin/'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/about' | '/admin/pgboss' | '/admin/tracks' | '/api/$' | '/admin'
-  id:
-    | '__root__'
-    | '/'
+  to:
     | '/about'
+    | '/reset-password'
+    | '/sign-in'
+    | '/api/$'
+    | '/'
     | '/admin/pgboss'
     | '/admin/tracks'
+    | '/admin'
+  id:
+    | '__root__'
+    | '/_main'
+    | '/_main/about'
+    | '/_main/reset-password'
+    | '/_main/sign-in'
     | '/api/$'
-    | '/admin/'
+    | '/_main/'
+    | '/_main/admin/pgboss'
+    | '/_main/admin/tracks'
+    | '/_main/admin/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
-  IndexRoute: typeof IndexRoute
-  AboutRoute: typeof AboutRoute
-  AdminPgbossRoute: typeof AdminPgbossRoute
-  AdminTracksRoute: typeof AdminTracksRoute
+  MainRouteRoute: typeof MainRouteRouteWithChildren
   ApiSplatRoute: typeof ApiSplatRoute
-  AdminIndexRoute: typeof AdminIndexRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/about': {
-      id: '/about'
-      path: '/about'
-      fullPath: '/about'
-      preLoaderRoute: typeof AboutRouteImport
+    '/_main': {
+      id: '/_main'
+      path: ''
+      fullPath: '/'
+      preLoaderRoute: typeof MainRouteRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/': {
-      id: '/'
+    '/_main/': {
+      id: '/_main/'
       path: '/'
       fullPath: '/'
-      preLoaderRoute: typeof IndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/admin/': {
-      id: '/admin/'
-      path: '/admin'
-      fullPath: '/admin/'
-      preLoaderRoute: typeof AdminIndexRouteImport
-      parentRoute: typeof rootRouteImport
+      preLoaderRoute: typeof MainIndexRouteImport
+      parentRoute: typeof MainRouteRoute
     }
     '/api/$': {
       id: '/api/$'
@@ -132,30 +158,78 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiSplatRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/admin/tracks': {
-      id: '/admin/tracks'
+    '/_main/sign-in': {
+      id: '/_main/sign-in'
+      path: '/sign-in'
+      fullPath: '/sign-in'
+      preLoaderRoute: typeof MainSignInRouteImport
+      parentRoute: typeof MainRouteRoute
+    }
+    '/_main/reset-password': {
+      id: '/_main/reset-password'
+      path: '/reset-password'
+      fullPath: '/reset-password'
+      preLoaderRoute: typeof MainResetPasswordRouteImport
+      parentRoute: typeof MainRouteRoute
+    }
+    '/_main/about': {
+      id: '/_main/about'
+      path: '/about'
+      fullPath: '/about'
+      preLoaderRoute: typeof MainAboutRouteImport
+      parentRoute: typeof MainRouteRoute
+    }
+    '/_main/admin/': {
+      id: '/_main/admin/'
+      path: '/admin'
+      fullPath: '/admin/'
+      preLoaderRoute: typeof MainAdminIndexRouteImport
+      parentRoute: typeof MainRouteRoute
+    }
+    '/_main/admin/tracks': {
+      id: '/_main/admin/tracks'
       path: '/admin/tracks'
       fullPath: '/admin/tracks'
-      preLoaderRoute: typeof AdminTracksRouteImport
-      parentRoute: typeof rootRouteImport
+      preLoaderRoute: typeof MainAdminTracksRouteImport
+      parentRoute: typeof MainRouteRoute
     }
-    '/admin/pgboss': {
-      id: '/admin/pgboss'
+    '/_main/admin/pgboss': {
+      id: '/_main/admin/pgboss'
       path: '/admin/pgboss'
       fullPath: '/admin/pgboss'
-      preLoaderRoute: typeof AdminPgbossRouteImport
-      parentRoute: typeof rootRouteImport
+      preLoaderRoute: typeof MainAdminPgbossRouteImport
+      parentRoute: typeof MainRouteRoute
     }
   }
 }
 
+interface MainRouteRouteChildren {
+  MainAboutRoute: typeof MainAboutRoute
+  MainResetPasswordRoute: typeof MainResetPasswordRoute
+  MainSignInRoute: typeof MainSignInRoute
+  MainIndexRoute: typeof MainIndexRoute
+  MainAdminPgbossRoute: typeof MainAdminPgbossRoute
+  MainAdminTracksRoute: typeof MainAdminTracksRoute
+  MainAdminIndexRoute: typeof MainAdminIndexRoute
+}
+
+const MainRouteRouteChildren: MainRouteRouteChildren = {
+  MainAboutRoute: MainAboutRoute,
+  MainResetPasswordRoute: MainResetPasswordRoute,
+  MainSignInRoute: MainSignInRoute,
+  MainIndexRoute: MainIndexRoute,
+  MainAdminPgbossRoute: MainAdminPgbossRoute,
+  MainAdminTracksRoute: MainAdminTracksRoute,
+  MainAdminIndexRoute: MainAdminIndexRoute,
+}
+
+const MainRouteRouteWithChildren = MainRouteRoute._addFileChildren(
+  MainRouteRouteChildren,
+)
+
 const rootRouteChildren: RootRouteChildren = {
-  IndexRoute: IndexRoute,
-  AboutRoute: AboutRoute,
-  AdminPgbossRoute: AdminPgbossRoute,
-  AdminTracksRoute: AdminTracksRoute,
+  MainRouteRoute: MainRouteRouteWithChildren,
   ApiSplatRoute: ApiSplatRoute,
-  AdminIndexRoute: AdminIndexRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

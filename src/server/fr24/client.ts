@@ -6,6 +6,7 @@ type Fr24Client = {
   close: () => void
   flightSummary: {
     getLight: (p: Record<string, unknown>) => Promise<unknown>
+    getFull: (p: Record<string, unknown>) => Promise<unknown>
   }
   flightTracks: {
     get: (flightId: string) => Promise<unknown>
@@ -143,7 +144,7 @@ export function getFlightSummaryLookbackDays(): number {
   return 14
 }
 
-/** Window for `flightSummary.getLight`: from (now − lookback) through now, UTC. */
+/** Window for `flightSummary.getFull` / `getLight`: from (now − lookback) through now, UTC. */
 export function flightSummarySearchWindowUtc(now = new Date()) {
   const days = getFlightSummaryLookbackDays()
   const from = new Date(now.getTime() - days * 86_400_000)
@@ -159,19 +160,155 @@ export function utcCalendarDateOnly(ms: number): Date {
   return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()))
 }
 
-/** Defensive: FR24 may return raw JSON with varying shapes. */
-export function parseSummaryFlightIds(raw: unknown): { id: string; label?: string }[] {
-  const out: { id: string; label?: string }[] = []
+function summaryDataList(raw: unknown): unknown[] {
   const r = raw as { data?: unknown[] } | unknown[] | null
   const list: unknown = Array.isArray(r) ? r : r && 'data' in r ? (r as { data: unknown[] }).data : undefined
-  if (!list || !Array.isArray(list)) return out
-  for (const row of list) {
+  if (!list || !Array.isArray(list)) return []
+  return list
+}
+
+/** Defensive: FR24 may return raw JSON with varying shapes. */
+export function parseSummaryFlightIds(raw: unknown): { id: string; label?: string }[] {
+  return parseSummaryRows(raw).map(({ fr24FlightId, flightNumber }) => ({
+    id: fr24FlightId,
+    label: flightNumber,
+  }))
+}
+
+/** Parse FR24 flight-summary datetime (ISO string, with or without `Z`). */
+export function parseFr24DateTime(value: unknown): Date | null {
+  if (value == null) return null
+  if (value instanceof Date && !Number.isNaN(value.getTime())) return value
+  if (typeof value === 'number') {
+    const ms = value < 1e12 ? value * 1000 : value
+    const d = new Date(ms)
+    return Number.isNaN(d.getTime()) ? null : d
+  }
+  if (typeof value !== 'string' || !value.length) return null
+  const d = new Date(value.includes('Z') || /[+-]\d{2}:?\d{2}$/.test(value) ? value : value + 'Z')
+  return Number.isNaN(d.getTime()) ? null : d
+}
+
+const TOP_LEVEL_SCHEDULE_KEYS = new Set([
+  'flight_id',
+  'id',
+  'fr24_id',
+  'flight',
+  'orig_iata',
+  'dest_iata',
+  'dest_iata_actual',
+  'origin_icao',
+  'destination_icao',
+  'orig_icao',
+  'dest_icao',
+  'datetime_takeoff',
+  'datetime_landed',
+  'datetime_scheduled_depart',
+  'datetime_scheduled_arrival',
+  'time_scheduled_depart',
+  'time_scheduled_arrival',
+  'scheduled_departure',
+  'scheduled_arrival',
+  'flight_time',
+  'first_seen',
+  'last_seen',
+])
+
+export type ParsedFr24Schedule = {
+  originIata: string | null
+  destIata: string | null
+  originIcao: string | null
+  destIcao: string | null
+  takeoffAt: Date | null
+  landedAt: Date | null
+  scheduledDeparture: Date | null
+  scheduledArrival: Date | null
+  flightTimeSec: number | null
+  scheduleJson: Record<string, unknown> | null
+}
+
+/**
+ * Map one flight-summary **full** (or light) row into storable schedule columns.
+ * Field names follow FR24 docs with a few fallbacks.
+ */
+export function parseSummaryScheduleRow(
+  o: Record<string, unknown>,
+): ParsedFr24Schedule {
+  const originIata = (o.orig_iata ?? o.origin_iata) as string | null | undefined
+  const destIata = (o.dest_iata ?? o.destination_iata) as string | null | undefined
+  const destIataFinal = (o.dest_iata_actual as string | undefined) ?? destIata
+  const originIcao = (o.origin_icao ?? o.orig_icao) as string | null | undefined
+  const destIcao = (o.destination_icao ?? o.dest_icao) as string | null | undefined
+  const takeoffAt = parseFr24DateTime(
+    o.datetime_takeoff ?? o.time_takeoff ?? o.departure,
+  )
+  const landedAt = parseFr24DateTime(
+    o.datetime_landed ?? o.time_landed ?? o.arrival,
+  )
+  const scheduledDeparture = parseFr24DateTime(
+    o.datetime_scheduled_depart ??
+      o.time_scheduled_depart ??
+      o.scheduled_departure,
+  )
+  const scheduledArrival = parseFr24DateTime(
+    o.datetime_scheduled_arrival ??
+      o.time_scheduled_arrival ??
+      o.scheduled_arrival,
+  )
+  const ft = o.flight_time
+  let flightTimeSec: number | null = null
+  if (typeof ft === 'number' && Number.isFinite(ft)) {
+    flightTimeSec = Math.floor(ft)
+  } else if (typeof ft === 'string' && /^\d+$/.test(ft)) {
+    flightTimeSec = Math.floor(Number(ft))
+  }
+  const scheduleJson: Record<string, unknown> = {}
+  for (const [k, v] of Object.entries(o)) {
+    if (TOP_LEVEL_SCHEDULE_KEYS.has(k)) continue
+    if (v === undefined) continue
+    scheduleJson[k] = v
+  }
+  return {
+    originIata: typeof originIata === 'string' ? originIata : null,
+    destIata: typeof destIataFinal === 'string' ? destIataFinal : null,
+    originIcao: typeof originIcao === 'string' ? originIcao : null,
+    destIcao: typeof destIcao === 'string' ? destIcao : null,
+    takeoffAt,
+    landedAt,
+    scheduledDeparture,
+    scheduledArrival,
+    flightTimeSec,
+    scheduleJson: Object.keys(scheduleJson).length ? scheduleJson : null,
+  }
+}
+
+export type Fr24SummaryRow = {
+  fr24FlightId: string
+  flightNumber: string
+  rawRow: Record<string, unknown>
+  schedule: ParsedFr24Schedule
+}
+
+/** One row per leg from getFull / getLight, with parsed schedule and IATA flight number. */
+export function parseSummaryRows(raw: unknown): Fr24SummaryRow[] {
+  const out: Fr24SummaryRow[] = []
+  for (const row of summaryDataList(raw)) {
     if (!row || typeof row !== 'object') continue
     const o = row as Record<string, unknown>
     const id = (o.flight_id ?? o.id ?? o.fr24_id) as string | undefined
-    if (typeof id === 'string' && id.length) {
-      out.push({ id, label: typeof o.flight === 'string' ? o.flight : undefined })
-    }
+    if (typeof id !== 'string' || !id.length) continue
+    const f =
+      (typeof o.flight === 'string' && o.flight) ||
+      (typeof o.operated_as === 'string' && o.operated_as) ||
+      (typeof o.callsign === 'string' && o.callsign) ||
+      ''
+    const flightNumber = f.toUpperCase().trim() || 'UNKNOWN'
+    out.push({
+      fr24FlightId: id,
+      flightNumber,
+      rawRow: o,
+      schedule: parseSummaryScheduleRow(o),
+    })
   }
   return out
 }

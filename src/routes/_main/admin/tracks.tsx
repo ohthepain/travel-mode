@@ -9,11 +9,17 @@ type TrackRow = {
   fetchedAt: string
   firstTimestampMs: number | null
   lastTimestampMs: number | null
+  originIata: string | null
+  destIata: string | null
+  takeoffAt: string | null
+  landedAt: string | null
+  scheduledDeparture: string | null
+  scheduledArrival: string | null
 }
 
 type TracksResponse = { tracks: TrackRow[] }
 
-export const Route = createFileRoute('/admin/tracks')({
+export const Route = createFileRoute('/_main/admin/tracks')({
   component: TracksPage,
 })
 
@@ -124,6 +130,7 @@ function TracksPage() {
                 <tr className="border-b border-[var(--line)] text-[var(--sea-ink-soft)]">
                   <th className="py-2 pr-3 font-medium">Flight</th>
                   <th className="py-2 pr-3 font-medium">Date (UTC)</th>
+                  <th className="py-2 pr-3 font-medium">Route</th>
                   <th className="py-2 pr-3 font-medium">FR24 id</th>
                   <th className="py-2 pr-3 font-medium">Fetched</th>
                 </tr>
@@ -131,7 +138,7 @@ function TracksPage() {
               <tbody>
                 {rows.length === 0 && (
                   <tr>
-                    <td colSpan={4} className="py-4 text-[var(--sea-ink-soft)]">
+                    <td colSpan={5} className="py-4 text-[var(--sea-ink-soft)]">
                       No tracks match.
                     </td>
                   </tr>
@@ -143,6 +150,9 @@ function TracksPage() {
                   >
                     <td className="py-2 pr-3 align-top">{t.flightNumber}</td>
                     <td className="py-2 pr-3 align-top">{t.travelDate}</td>
+                    <td className="whitespace-nowrap py-2 pr-3 align-top text-xs">
+                      {t.originIata ?? '—'} → {t.destIata ?? '—'}
+                    </td>
                     <td className="max-w-[10rem] truncate py-2 pr-3 align-top font-mono text-xs">
                       {t.fr24FlightId}
                     </td>

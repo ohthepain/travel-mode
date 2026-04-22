@@ -1,10 +1,11 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { useCallback, useEffect, useState } from 'react'
-import { FlightMap } from '../components/FlightMap'
-import { useFlightStore } from '../stores/flight'
-import { authClient } from '../lib/auth-client'
+import { FlightMap } from '../../components/FlightMap'
+import { cn } from '../../lib/cn'
+import { useFlightStore } from '../../stores/flight'
+import { authClient } from '../../lib/auth-client'
 
-export const Route = createFileRoute('/')({ component: Home })
+export const Route = createFileRoute('/_main/')({ component: Home })
 
 function Home() {
   const [fn, setFn] = useState('D84321')
@@ -27,6 +28,7 @@ function Home() {
   const downloadTiles = useFlightStore((s) => s.downloadTiles)
   const loadPackFromIdb = useFlightStore((s) => s.loadPackFromIdb)
   const estimatedPosition = useFlightStore((s) => s.estimatedPosition)
+  const mapMode = useFlightStore((s) => s.mapMode)
 
   const [clock, setClock] = useState(() => new Date())
   useEffect(() => {
@@ -97,7 +99,12 @@ function Home() {
   }, [downloadTiles, fn, setFlight])
 
   return (
-    <main className="page-wrap bg-slate-950 text-slate-100 px-4 pb-8 pt-6">
+    <main
+      className={cn(
+        'bg-slate-950 text-slate-100 px-3 pb-8 pt-6 sm:px-4',
+        mapMode ? 'page-wrap' : 'mx-auto w-full max-w-md sm:max-w-lg',
+      )}
+    >
       <div className="mb-4 flex flex-col gap-1">
         <p className="m-0 text-sm tracking-wide text-cyan-400/90">
           travelmode.live

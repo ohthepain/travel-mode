@@ -5,13 +5,31 @@ import {
   flightSummarySearchWindowUtc,
   fr24Request,
   getFr24Client,
-  parseSummaryFlightIds,
+  parseSummaryRows,
   trackResponseToLine,
   utcCalendarDateOnly,
 } from '../fr24/client'
+import type { Fr24SummaryRow } from '../fr24/client'
+import { flightAlreadySynced } from './queue'
+import { flightNumbersFromPayload } from './sync-payload'
+import type { SyncFlightPayload } from './sync-payload'
 
-export type SyncFlightPayload = {
-  flightNumber: string
+export type { SyncFlightPayload } from './sync-payload'
+export { flightNumbersFromPayload } from './sync-payload'
+
+function scheduleToPrisma(s: Fr24SummaryRow['schedule']) {
+  return {
+    originIata: s.originIata,
+    destIata: s.destIata,
+    originIcao: s.originIcao,
+    destIcao: s.destIcao,
+    takeoffAt: s.takeoffAt,
+    landedAt: s.landedAt,
+    scheduledDeparture: s.scheduledDeparture,
+    scheduledArrival: s.scheduledArrival,
+    flightTimeSec: s.flightTimeSec,
+    scheduleJson: s.scheduleJson === null ? null : (s.scheduleJson as object | null),
+  }
 }
 
 function mockTrackForDev(flightNumber: string) {
@@ -29,63 +47,102 @@ function mockTrackForDev(flightNumber: string) {
   }
 }
 
+function rowMatchesRequested(
+  row: Fr24SummaryRow,
+  requested: string[],
+): boolean {
+  if (!requested.length) return true
+  return requested.includes(row.flightNumber)
+}
+
 export async function syncFlightJob(p: SyncFlightPayload) {
-  const flightNumber = p.flightNumber.toUpperCase()
+  const flightNums = flightNumbersFromPayload(p)
+  if (flightNums.length === 0) {
+    throw new Error('sync_flight: flightNumber or non-empty flightNumbers is required')
+  }
+
+  if (process.env.SKIP_FR24_IF_SYNCED === '1') {
+    const synced = await Promise.all(
+      flightNums.map((n) => flightAlreadySynced(n)),
+    )
+    if (synced.every(Boolean)) {
+      return
+    }
+  }
 
   const client = getFr24Client()
   let summaryRaw: unknown = null
-  const flightIds: { id: string; label?: string }[] = []
 
   try {
     if (!client) {
-      if (process.env.ALLOW_MOCK_FR24 === '1') {
-        const m = mockTrackForDev(flightNumber)
-        const line = lineFromCoords(m.coords)
-        const { corridor, bbox } = buildCorridorAndBbox(m.coords)
-        const travelDate = utcCalendarDateOnly(Date.now())
-        await prisma.track.upsert({
-          where: { fr24FlightId: m.id },
-          create: {
-            flightNumber,
-            travelDate,
-            fr24FlightId: m.id,
-            routeGeojson: line,
-            corridorGeojson: corridor,
-            bbox: bbox as object,
-            firstTimestampMs: m.times[0] ?? null,
-            lastTimestampMs: m.times[m.times.length - 1] ?? null,
-            rawSummaryJson: { mock: true } as object,
-          },
-          update: {
-            routeGeojson: line,
-            corridorGeojson: corridor,
-            bbox: bbox as object,
-            firstTimestampMs: m.times[0] ?? null,
-            lastTimestampMs: m.times[m.times.length - 1] ?? null,
-            updatedAt: new Date(),
-          },
-        })
-        return
+      for (const flightNumber of flightNums) {
+        if (process.env.ALLOW_MOCK_FR24 === '1') {
+          const m = mockTrackForDev(flightNumber)
+          const line = lineFromCoords(m.coords)
+          const { corridor, bbox } = buildCorridorAndBbox(m.coords)
+          const travelDate = utcCalendarDateOnly(Date.now())
+          await prisma.track.upsert({
+            where: { fr24FlightId: m.id },
+            create: {
+              flightNumber,
+              travelDate,
+              fr24FlightId: m.id,
+              routeGeojson: line,
+              corridorGeojson: corridor as object,
+              bbox: bbox as object,
+              firstTimestampMs: m.times[0] ?? null,
+              lastTimestampMs: m.times[m.times.length - 1] ?? null,
+              rawSummaryJson: { mock: true },
+            },
+            update: {
+              routeGeojson: line,
+              corridorGeojson: corridor as object,
+              bbox: bbox as object,
+              firstTimestampMs: m.times[0] ?? null,
+              lastTimestampMs: m.times[m.times.length - 1] ?? null,
+              updatedAt: new Date(),
+            },
+          })
+        } else {
+          throw new Error(
+            'FLIGHTRADAR24_API_TOKEN (or FR24_API_TOKEN) is not set and ALLOW_MOCK_FR24 is not 1',
+          )
+        }
       }
-      throw new Error(
-        'FLIGHTRADAR24_API_TOKEN (or FR24_API_TOKEN) is not set and ALLOW_MOCK_FR24 is not 1',
-      )
+      return
     }
 
     const { flight_datetime_from, flight_datetime_to } = flightSummarySearchWindowUtc()
-    const light = await fr24Request(() =>
-      client.flightSummary.getLight({
+    const full = await fr24Request(() =>
+      client.flightSummary.getFull({
         flight_datetime_from,
         flight_datetime_to,
-        flights: [flightNumber],
+        flights: flightNums,
       }),
     )
-    summaryRaw = light
-    flightIds.push(...parseSummaryFlightIds(light))
+    summaryRaw = full
+    const rows = parseSummaryRows(full).filter((r) => rowMatchesRequested(r, flightNums))
 
-    for (const { id: fr24FlightId } of flightIds) {
-      const existing = await prisma.track.findUnique({ where: { fr24FlightId } })
-      if (existing) continue
+    for (const row of rows) {
+      const { fr24FlightId, flightNumber } = row
+      const commonSummary = { rawSummaryJson: summaryRaw as object }
+      const sched = scheduleToPrisma(row.schedule)
+
+      const existing = await prisma.track.findUnique({
+        where: { fr24FlightId },
+      })
+      if (existing) {
+        await prisma.track.update({
+          where: { fr24FlightId },
+          data: {
+            ...sched,
+            ...commonSummary,
+            updatedAt: new Date(),
+          },
+        })
+        continue
+      }
+
       const tr = await fr24Request(() => client.flightTracks.get(fr24FlightId))
       const { coords, times: times1 } = trackResponseToLine(tr)
       if (coords.length < 2) continue
@@ -101,11 +158,12 @@ export async function syncFlightJob(p: SyncFlightPayload) {
           travelDate,
           fr24FlightId,
           routeGeojson: line,
-          corridorGeojson: corridor,
+          corridorGeojson: corridor as object,
           bbox: bbox as object,
           firstTimestampMs: times.length ? Math.min(...times) : null,
           lastTimestampMs: times.length ? Math.max(...times) : null,
-          rawSummaryJson: summaryRaw as object,
+          ...sched,
+          ...commonSummary,
         },
       })
     }

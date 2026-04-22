@@ -83,6 +83,12 @@ adminRoutes.get('/tracks', async (c) => {
       fetchedAt: true,
       firstTimestampMs: true,
       lastTimestampMs: true,
+      originIata: true,
+      destIata: true,
+      takeoffAt: true,
+      landedAt: true,
+      scheduledDeparture: true,
+      scheduledArrival: true,
     },
   })
 
@@ -97,6 +103,12 @@ adminRoutes.get('/tracks', async (c) => {
         t.firstTimestampMs == null ? null : Number(t.firstTimestampMs),
       lastTimestampMs:
         t.lastTimestampMs == null ? null : Number(t.lastTimestampMs),
+      originIata: t.originIata,
+      destIata: t.destIata,
+      takeoffAt: t.takeoffAt?.toISOString() ?? null,
+      landedAt: t.landedAt?.toISOString() ?? null,
+      scheduledDeparture: t.scheduledDeparture?.toISOString() ?? null,
+      scheduledArrival: t.scheduledArrival?.toISOString() ?? null,
     })),
   })
 })
