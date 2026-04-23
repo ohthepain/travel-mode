@@ -35,6 +35,8 @@ export type FlightState = {
   clearTrackData: () => void
   downloadTiles: () => Promise<void>
   estimatedPosition: (now: Date) => [number, number] | null
+  /** Progress 0..1 along the track for elapsed ms since departure anchor (same basis as `estimatedPosition`). */
+  positionAtElapsedMs: (elapsedMs: number) => [number, number] | null
   resetTileProgress: () => void
 }
 
@@ -166,8 +168,8 @@ export const useFlightStore = create<FlightState>((set, get) => ({
       set({ tileProgress: null })
     }
   },
-  estimatedPosition: (now) => {
-    const { line, takeoff, takeoffOffsetMin, correctionEN } = get()
+  positionAtElapsedMs: (elapsedMs) => {
+    const { line, correctionEN } = get()
     if (!line?.geometry) return null
     const t0 = firstTime(line)
     const t1 = lastTime(line)
@@ -176,12 +178,16 @@ export const useFlightStore = create<FlightState>((set, get) => ({
       if (!p) return null
       return offsetMetersToLonLat(p, correctionEN)
     }
-    const start = addMinutes(takeoff, takeoffOffsetMin).getTime()
     const duration = Math.max(1, t1 - t0)
-    const prog = (now.getTime() - start) / duration
+    const prog = elapsedMs / duration
     const p = pointAlong(line, Math.min(1, Math.max(0, prog)))
     if (!p) return null
     return offsetMetersToLonLat(p, correctionEN)
+  },
+  estimatedPosition: (now) => {
+    const { takeoff, takeoffOffsetMin } = get()
+    const start = addMinutes(takeoff, takeoffOffsetMin).getTime()
+    return get().positionAtElapsedMs(now.getTime() - start)
   },
 }))
 
@@ -196,6 +202,15 @@ function isFeatureCollection(x: unknown): x is FeatureCollection {
   if (!x || typeof x !== 'object') return false
   const o = x as { type?: string; features?: unknown }
   return o.type === 'FeatureCollection' && Array.isArray(o.features)
+}
+
+/** Track span in ms for playback scrubber; null if line missing or timestamps absent. */
+export function flightTrackDurationMs(line: Feature<LineString> | null): number | null {
+  if (!line) return null
+  const t0 = firstTime(line)
+  const t1 = lastTime(line)
+  if (t0 == null || t1 == null) return null
+  return Math.max(1, t1 - t0)
 }
 
 function firstTime(f: Feature<LineString>) {

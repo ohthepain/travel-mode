@@ -1,10 +1,10 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { Loader2 } from 'lucide-react'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { FlightMap } from '../../components/FlightMap'
 import { cn } from '../../lib/cn'
 import { effectiveFlightMapBbox } from '../../lib/route-bbox-expand'
-import { useFlightStore } from '../../stores/flight'
+import { flightTrackDurationMs, useFlightStore } from '../../stores/flight'
 
 type FlightSearch = { date?: string }
 
@@ -42,10 +42,11 @@ function FlightPage() {
   const c = useFlightStore((s) => s.correctionEN)
   const tileProgress = useFlightStore((s) => s.tileProgress)
   const downloadTiles = useFlightStore((s) => s.downloadTiles)
-  const estimatedPosition = useFlightStore((s) => s.estimatedPosition)
+  const positionAtElapsedMs = useFlightStore((s) => s.positionAtElapsedMs)
   const mapMode = useFlightStore((s) => s.mapMode)
 
   const packDateKey = travelDateQ ?? 'latest'
+  const mapSessionKey = `${fn}:${packDateKey}`
   useEffect(() => {
     useFlightStore.getState().setFlight(fn, travelDateQ)
   }, [fn, travelDateQ])
@@ -57,21 +58,62 @@ function FlightPage() {
     void st.loadPackFromIdb()
   }, [fn, packDateKey])
 
-  const [clock, setClock] = useState(() => new Date())
+  const durationMs = useMemo(() => flightTrackDurationMs(line), [line])
+  const [elapsedMs, setElapsedMs] = useState(0)
+  const [isPlaying, setIsPlaying] = useState(false)
+  const [hasStartedPlayback, setHasStartedPlayback] = useState(false)
+  const playbackAnchorWallMs = useRef(0)
+  const playbackAnchorElapsedMs = useRef(0)
+
   useEffect(() => {
-    const id = setInterval(() => setClock(new Date()), 30_000)
-    return () => clearInterval(id)
-  }, [])
+    setElapsedMs(0)
+    setIsPlaying(false)
+    setHasStartedPlayback(false)
+  }, [mapSessionKey])
+
+  useEffect(() => {
+    if (durationMs == null) return
+    setElapsedMs((e) => (e > durationMs ? durationMs : e))
+  }, [durationMs])
+
+  useEffect(() => {
+    if (!isPlaying || durationMs == null) return
+    let id = 0
+    const tick = () => {
+      const next = Math.min(
+        durationMs,
+        Date.now() - playbackAnchorWallMs.current + playbackAnchorElapsedMs.current,
+      )
+      setElapsedMs(next)
+      if (next >= durationMs) {
+        setIsPlaying(false)
+        return
+      }
+      id = requestAnimationFrame(tick)
+    }
+    id = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(id)
+  }, [isPlaying, durationMs])
+
+  const onTakeOff = useCallback(() => {
+    if (durationMs == null) return
+    const baseElapsed = hasStartedPlayback ? elapsedMs : 0
+    if (!hasStartedPlayback) {
+      setElapsedMs(0)
+      setHasStartedPlayback(true)
+    }
+    playbackAnchorElapsedMs.current = baseElapsed
+    playbackAnchorWallMs.current = Date.now()
+    setIsPlaying(true)
+  }, [durationMs, hasStartedPlayback, elapsedMs])
 
   const pos =
-    estimatedPosition(clock) ??
+    positionAtElapsedMs(elapsedMs) ??
     (line && line.geometry.coordinates[0]
       ? (line.geometry.coordinates[0] as [number, number])
       : null)
   const center: [number, number] = pos ?? [0, 20]
   const zoom = line ? 5 : 2
-
-  const mapSessionKey = `${fn}:${packDateKey}`
   /** API bbox ∪ line bounds, extended past track ends so maps/tiles reach the destination when ADS-B stops early. */
   const mapBbox = useMemo(() => effectiveFlightMapBbox(line, bbox), [line, bbox])
   const canSaveOffline = mapBbox != null
@@ -206,7 +248,7 @@ function FlightPage() {
           </>
         ) : (
           <>
-            Map center follows estimated position
+            Map center follows playback position
             {mapBbox
               ? ` — bbox W:${mapBbox[0].toFixed(2)} S:${mapBbox[1].toFixed(2)} E:${mapBbox[2].toFixed(2)} N:${mapBbox[3].toFixed(2)}`
               : ''}
@@ -220,6 +262,45 @@ function FlightPage() {
           </>
         )}
       </div>
+
+      <section className="mb-3 max-w-3xl rounded-xl border border-slate-800 bg-slate-900/50 p-4">
+        <h2 className="mb-2 mt-0 text-base font-medium text-white">Flight playback</h2>
+        <p className="text-slate-500 mb-3 text-sm tabular-nums">
+          Elapsed {formatElapsedHms(elapsedMs)}
+          {durationMs != null && (
+            <>
+              {' '}
+              / {formatElapsedHms(durationMs)}
+            </>
+          )}
+        </p>
+        <div className="mb-3 flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            className="rounded-lg border border-cyan-700/80 bg-cyan-950/80 px-3 py-2 text-sm font-medium text-cyan-100 disabled:cursor-not-allowed disabled:opacity-50"
+            disabled={durationMs == null || isPlaying}
+            onClick={onTakeOff}
+          >
+            {isPlaying ? 'In flight…' : hasStartedPlayback ? 'Resume' : 'Take off'}
+          </button>
+        </div>
+        <label className="flex flex-col gap-1 text-sm">
+          <span className="text-slate-400">Scrub along track</span>
+          <input
+            type="range"
+            className="w-full disabled:opacity-50"
+            min={0}
+            max={durationMs ?? 0}
+            step={1}
+            value={durationMs != null ? Math.min(elapsedMs, durationMs) : 0}
+            disabled={durationMs == null}
+            onChange={(e) => {
+              setIsPlaying(false)
+              setElapsedMs(Number(e.currentTarget.value))
+            }}
+          />
+        </label>
+      </section>
 
       <FlightMap
         line={line}
@@ -289,4 +370,15 @@ function isoLocal(d: Date) {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(
     d.getMinutes(),
   )}`
+}
+
+function formatElapsedHms(ms: number) {
+  const s = Math.floor(ms / 1000)
+  const h = Math.floor(s / 3600)
+  const m = Math.floor((s % 3600) / 60)
+  const sec = s % 60
+  if (h > 0) {
+    return `${h}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`
+  }
+  return `${m}:${String(sec).padStart(2, '0')}`
 }

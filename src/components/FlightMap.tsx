@@ -280,15 +280,23 @@ export function FlightMap({
     bbox?.[3],
   ])
 
+  const [planeLng, planeLat] = plane ?? [NaN, NaN]
   useEffect(() => {
     const m = map.current
-    if (!m) return
-    marker.current?.remove()
-    marker.current = null
-    if (plane) {
-      marker.current = new maplibregl.Marker({ color: '#f59e0b' }).setLngLat(plane).addTo(m)
+    if (!m || !mapReady) return
+    if (plane == null || Number.isNaN(planeLng) || Number.isNaN(planeLat)) {
+      marker.current?.remove()
+      marker.current = null
+      return
     }
-  }, [plane])
+    if (!marker.current) {
+      marker.current = new maplibregl.Marker({ color: '#f59e0b' })
+        .setLngLat([planeLng, planeLat])
+        .addTo(m)
+    } else {
+      marker.current.setLngLat([planeLng, planeLat])
+    }
+  }, [plane, planeLng, planeLat, mapReady, mapSessionKey])
 
   return (
     <div className="relative w-full">
