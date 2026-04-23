@@ -6,7 +6,7 @@
     "#/*": "./src/*"
   },
   "scripts": {
-    "dev": "vite dev --port 3000",
+    "dev": "vite dev --port 3020",
     "build": "prisma generate && vite build",
     "preview": "vite preview",
     "postinstall": "prisma generate",
@@ -63,6 +63,7 @@
     "@types/react-dom": "^19.2.0",
     "@vitejs/plugin-react": "^6.0.1",
     "jsdom": "^28.1.0",
+    "png-to-ico": "2.1.8",
     "prettier": "^3.8.1",
     "prisma": "^7.7.0",
     "tsx": "^4.21.0",

@@ -1,8 +1,8 @@
 import { Link, useRouterState } from '@tanstack/react-router'
-import { signOut, useSession } from '../lib/auth-client'
 import { cn } from '../lib/cn'
 import { useFlightStore } from '../stores/flight'
 import ThemeToggle from './ThemeToggle'
+import { UserMenu } from './UserMenu'
 
 type AppHeaderBrandProps = {
   className?: string
@@ -42,7 +42,6 @@ export function AppHeaderBrand({ className, compact }: AppHeaderBrandProps) {
 const HOME_PATH = '/'
 
 export default function Header() {
-  const session = useSession()
   const pathname = useRouterState({ select: (s) => s.location.pathname })
   const isHome = pathname === HOME_PATH
   const mapMode = useFlightStore((s) => s.mapMode)
@@ -106,28 +105,7 @@ export default function Header() {
 
         <div className="flex w-full flex-wrap items-center justify-end gap-1.5 sm:w-auto sm:shrink-0 sm:gap-2">
           <ThemeToggle />
-
-          {session.data?.user ? (
-            <>
-              <span className="hidden max-w-[10rem] truncate text-xs text-[var(--sea-ink-soft)] sm:inline sm:max-w-[14rem]">
-                {session.data.user.email}
-              </span>
-              <button
-                type="button"
-                className="rounded-lg border border-[var(--chip-line)] bg-[var(--chip-bg)] px-2.5 py-1.5 text-sm font-semibold text-[var(--sea-ink)] transition hover:bg-[var(--link-bg-hover)] sm:px-3"
-                onClick={() => void signOut()}
-              >
-                Sign out
-              </button>
-            </>
-          ) : (
-            <Link
-              to="/sign-in"
-              className="rounded-lg bg-cyan-600 px-2.5 py-1.5 text-sm font-semibold text-slate-950 no-underline transition hover:opacity-90 sm:px-3"
-            >
-              Sign in
-            </Link>
-          )}
+          <UserMenu />
         </div>
 
         <div className="flex w-full items-center gap-3 overflow-x-auto border-t border-[var(--line)] py-2 [scrollbar-width:none] sm:hidden [&::-webkit-scrollbar]:hidden">

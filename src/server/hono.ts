@@ -1,18 +1,11 @@
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
-import { auth } from './auth'
+import { auth, getTrustedOrigins } from './auth'
 import { adminRoutes } from './routes/admin'
 import { flightRoutes } from './routes/flights'
 import { mapTileRoutes } from './routes/map-tiles'
 
-const baseURL = process.env.BETTER_AUTH_URL ?? 'http://localhost:3000'
-const extraOrigins = (process.env.TRUSTED_ORIGINS ?? '')
-  .split(',')
-  .map((s) => s.trim())
-  .filter(Boolean)
-const corsOrigins = [
-  ...new Set([baseURL, 'http://localhost:3000', 'http://127.0.0.1:3000', ...extraOrigins]),
-]
+const corsOrigins = getTrustedOrigins()
 
 export const app = new Hono().basePath('/api')
 

@@ -6,9 +6,11 @@ import { authClient, signIn, signUp } from '../../lib/auth-client'
 import ThemeToggle from '../../components/ThemeToggle'
 
 const INTRO =
-  'See the ground from your window when you fly: sync flight tracks, save map tiles, and go offline. Sign in to sync preferences across devices later.'
+  'See the ground from your window when you fly: sync flight tracks, and go offline. Sign in to sync preferences across devices later.'
 
-export const Route = createFileRoute('/_main/sign-in')({ component: SignInPage })
+export const Route = createFileRoute('/_main/sign-in')({
+  component: SignInPage,
+})
 
 type Tab = 'password' | 'magic'
 
@@ -26,10 +28,13 @@ function SignInPage() {
   const [forgotPasswordSent, setForgotPasswordSent] = useState(false)
 
   const handleGoogleSignIn = useCallback(async () => {
-    const publicAppUrl = import.meta.env.VITE_PUBLIC_APP_URL as string | undefined
+    const publicAppUrl = import.meta.env.VITE_PUBLIC_APP_URL as
+      | string
+      | undefined
     const isLocalhost =
       typeof window !== 'undefined' &&
-      (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
+      (window.location.hostname === 'localhost' ||
+        window.location.hostname === '127.0.0.1')
     if (isLocalhost && publicAppUrl) {
       const target = new URL(publicAppUrl)
       if (target.origin !== window.location.origin) {
@@ -67,7 +72,11 @@ function SignInPage() {
     try {
       if (mode === 'sign-in') {
         if (tab === 'password') {
-          const result = await signIn.email({ email, password, callbackURL: '/' })
+          const result = await signIn.email({
+            email,
+            password,
+            callbackURL: '/',
+          })
           if (result.error) {
             const st = (result.error as { status?: number }).status
             if (st === 403) {
@@ -101,7 +110,9 @@ function SignInPage() {
           toast.error(result.error.message ?? 'Sign up failed')
           return
         }
-        toast.success('Account created. Check your email to verify if required.')
+        toast.success(
+          'Account created. Check your email to verify if required.',
+        )
         setMode('sign-in')
         setTab('password')
       }
@@ -161,7 +172,10 @@ function SignInPage() {
         <div className="absolute -top-24 -left-24 w-96 h-96 rounded-full opacity-5 bg-white" />
         <div className="absolute -bottom-32 -right-16 size-[28rem] rounded-full opacity-5 bg-white" />
 
-        <Link to="/" className="text-sm text-slate-500 hover:text-slate-300 relative z-10">
+        <Link
+          to="/"
+          className="text-sm text-slate-500 hover:text-slate-300 relative z-10"
+        >
           <div className="flex items-center gap-3">
             <img
               src="/favicon.ico"
@@ -170,7 +184,9 @@ function SignInPage() {
               width={40}
               height={40}
             />
-            <span className="text-white font-semibold text-lg tracking-wide">travelmode.live</span>
+            <span className="text-white font-semibold text-lg tracking-wide">
+              travelmode.live
+            </span>
           </div>
         </Link>
 
@@ -181,7 +197,7 @@ function SignInPage() {
           >
             {mode === 'sign-in' ? 'Welcome back to' : 'Get started with'}
             <br />
-            <span className="text-slate-400">flight maps offline</span>
+            <span className="text-slate-400">Travelmode</span>
           </h1>
           <p className="text-slate-400 max-w-xs" style={{ lineHeight: 1.6 }}>
             {INTRO}
@@ -210,7 +226,9 @@ function SignInPage() {
                   width={36}
                   height={36}
                 />
-                <span className="font-semibold text-lg text-[var(--sea-ink)]">travelmode</span>
+                <span className="font-semibold text-lg text-[var(--sea-ink)]">
+                  travelmode
+                </span>
               </div>
               <ThemeToggle />
             </div>
@@ -253,7 +271,9 @@ function SignInPage() {
               <>
                 <div className="flex items-center gap-4 mb-6">
                   <div className="flex-1 h-px bg-[var(--line)]" />
-                  <span className="text-[var(--sea-ink-soft)] text-sm">or continue with email</span>
+                  <span className="text-[var(--sea-ink-soft)] text-sm">
+                    or continue with email
+                  </span>
                   <div className="flex-1 h-px bg-[var(--line)]" />
                 </div>
 
@@ -273,7 +293,9 @@ function SignInPage() {
                     type="button"
                     onClick={() => setTab('magic')}
                     className={`flex-1 py-2.5 rounded-lg font-semibold text-sm transition-all ${
-                      tab === 'magic' ? 'bg-cyan-600 text-slate-950' : 'text-[var(--sea-ink-soft)]'
+                      tab === 'magic'
+                        ? 'bg-cyan-600 text-slate-950'
+                        : 'text-[var(--sea-ink-soft)]'
                     }`}
                   >
                     Magic link
@@ -285,7 +307,10 @@ function SignInPage() {
             <form onSubmit={onSubmit} className="space-y-5">
               {mode === 'sign-up' && (
                 <div>
-                  <label htmlFor="name" className="block text-sm font-medium text-[var(--sea-ink)] mb-1.5">
+                  <label
+                    htmlFor="name"
+                    className="block text-sm font-medium text-[var(--sea-ink)] mb-1.5"
+                  >
                     Name
                   </label>
                   <input
@@ -301,7 +326,10 @@ function SignInPage() {
               )}
 
               <div>
-                <label htmlFor="email" className="block text-sm font-medium text-[var(--sea-ink)] mb-1.5">
+                <label
+                  htmlFor="email"
+                  className="block text-sm font-medium text-[var(--sea-ink)] mb-1.5"
+                >
                   Email
                 </label>
                 <div className="relative">
@@ -322,7 +350,8 @@ function SignInPage() {
                 </div>
               </div>
 
-              {(mode === 'sign-up' || (mode === 'sign-in' && tab === 'password')) && (
+              {(mode === 'sign-up' ||
+                (mode === 'sign-in' && tab === 'password')) && (
                 <div>
                   <div className="flex items-center justify-between mb-1.5">
                     <label
@@ -353,7 +382,9 @@ function SignInPage() {
                       onChange={(e) => setPassword(e.target.value)}
                       placeholder="••••••••"
                       required={mode === 'sign-up' || tab === 'password'}
-                      autoComplete={mode === 'sign-in' ? 'current-password' : 'new-password'}
+                      autoComplete={
+                        mode === 'sign-in' ? 'current-password' : 'new-password'
+                      }
                       minLength={mode === 'sign-up' ? 8 : undefined}
                       className="w-full pl-10 pr-11 py-3 rounded-xl border border-[var(--line)] bg-[var(--chip-bg)] text-[var(--sea-ink)] placeholder:text-[var(--sea-ink-soft)] text-sm outline-none focus:ring-2 focus:ring-cyan-500/50"
                     />
@@ -382,7 +413,9 @@ function SignInPage() {
                   </>
                 ) : (
                   <>
-                    <span>{mode === 'sign-in' ? 'Sign in' : 'Create account'}</span>
+                    <span>
+                      {mode === 'sign-in' ? 'Sign in' : 'Create account'}
+                    </span>
                     <ArrowRight size={16} />
                   </>
                 )}
@@ -415,9 +448,11 @@ function SignInPage() {
             )}
 
             <p className="text-center text-xs text-[var(--sea-ink-soft)] mt-8">
-              By continuing, you agree to use this service responsibly. Use https in production; set{' '}
+              By continuing, you agree to use this service responsibly. Use
+              https in production; set{' '}
               <code className="text-[var(--sea-ink)]">BETTER_AUTH_URL</code>,{' '}
-              <code className="text-[var(--sea-ink)]">TRUSTED_ORIGINS</code>, and Google redirect URIs accordingly.
+              <code className="text-[var(--sea-ink)]">TRUSTED_ORIGINS</code>,
+              and Google redirect URIs accordingly.
             </p>
 
             <p className="text-center mt-4">
@@ -452,7 +487,10 @@ function SignInPage() {
                   className="w-full max-w-md rounded-2xl border border-[var(--line)] bg-[var(--surface-strong)] p-6 shadow-xl"
                   onClick={(e) => e.stopPropagation()}
                 >
-                  <h2 id="forgot-title" className="text-lg font-semibold text-[var(--sea-ink)] mb-1">
+                  <h2
+                    id="forgot-title"
+                    className="text-lg font-semibold text-[var(--sea-ink)] mb-1"
+                  >
                     Forgot password
                   </h2>
                   <p className="text-sm text-[var(--sea-ink-soft)] mb-4">
@@ -473,7 +511,9 @@ function SignInPage() {
                           id="forgot-password-email"
                           type="email"
                           value={forgotPasswordEmail}
-                          onChange={(e) => setForgotPasswordEmail(e.target.value)}
+                          onChange={(e) =>
+                            setForgotPasswordEmail(e.target.value)
+                          }
                           placeholder="you@example.com"
                           required
                           autoComplete="email"

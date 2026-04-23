@@ -41,7 +41,8 @@ export function countTilesBbox(
   north: number,
 ) {
   let n = 0
-  for (let z = zMin; z <= zMax; z++) n += tileRangeForBbox(z, west, south, east, north).length
+  for (let z = zMin; z <= zMax; z++)
+    n += tileRangeForBbox(z, west, south, east, north).length
   return n
 }
 
@@ -57,6 +58,8 @@ export function appMapTileUrlTemplate(): string {
   // Do not use `new URL(...).href` — the URL API encodes `{` and `}` to %7B/%7D, and
   // MapLibre matches literal `{z}` / `{x}` / `{y}` in the string when substituting tiles.
   const base =
-    typeof window === 'undefined' ? 'http://localhost:3000' : window.location.origin
+    typeof window === 'undefined'
+      ? 'http://localhost:3020'
+      : window.location.origin
   return `${base}/api/map-tiles/{z}/{x}/{y}.png`
 }

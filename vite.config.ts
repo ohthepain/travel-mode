@@ -14,14 +14,42 @@ const config = defineConfig({
     viteReact(),
     VitePWA({
       registerType: 'autoUpdate',
+      includeAssets: [
+        'favicon.ico',
+        'favicon-16.png',
+        'favicon-32.png',
+        'apple-touch-icon.png',
+        'logo192.png',
+        'logo512.png',
+      ],
       manifest: {
         name: 'travelmode.live',
         short_name: 'travelmode',
         description: 'See what is outside the window when you fly — offline.',
-        theme_color: '#0f172a',
-        background_color: '#0f172a',
+        theme_color: '#c2410c',
+        background_color: '#0c0a09',
         display: 'standalone',
         start_url: '/',
+        icons: [
+          {
+            src: 'logo192.png',
+            sizes: '192x192',
+            type: 'image/png',
+            purpose: 'any',
+          },
+          {
+            src: 'logo512.png',
+            sizes: '512x512',
+            type: 'image/png',
+            purpose: 'any',
+          },
+          {
+            src: 'logo512.png',
+            sizes: '512x512',
+            type: 'image/png',
+            purpose: 'maskable',
+          },
+        ],
       },
       // Raster tiles: IndexedDB in app, not SW
       workbox: { globPatterns: [] },
