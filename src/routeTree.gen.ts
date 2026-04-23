@@ -15,7 +15,10 @@ import { Route as ApiSplatRouteImport } from './routes/api/$'
 import { Route as MainSignInRouteImport } from './routes/_main/sign-in'
 import { Route as MainResetPasswordRouteImport } from './routes/_main/reset-password'
 import { Route as MainAboutRouteImport } from './routes/_main/about'
+import { Route as MainMyFlightsIndexRouteImport } from './routes/_main/my-flights/index'
 import { Route as MainAdminIndexRouteImport } from './routes/_main/admin/index'
+import { Route as MainMyFlightsSearchRouteImport } from './routes/_main/my-flights/search'
+import { Route as MainFlightFlightNumberRouteImport } from './routes/_main/flight.$flightNumber'
 import { Route as MainAdminTracksRouteImport } from './routes/_main/admin/tracks'
 import { Route as MainAdminPgbossRouteImport } from './routes/_main/admin/pgboss'
 
@@ -48,9 +51,24 @@ const MainAboutRoute = MainAboutRouteImport.update({
   path: '/about',
   getParentRoute: () => MainRouteRoute,
 } as any)
+const MainMyFlightsIndexRoute = MainMyFlightsIndexRouteImport.update({
+  id: '/my-flights/',
+  path: '/my-flights/',
+  getParentRoute: () => MainRouteRoute,
+} as any)
 const MainAdminIndexRoute = MainAdminIndexRouteImport.update({
   id: '/admin/',
   path: '/admin/',
+  getParentRoute: () => MainRouteRoute,
+} as any)
+const MainMyFlightsSearchRoute = MainMyFlightsSearchRouteImport.update({
+  id: '/my-flights/search',
+  path: '/my-flights/search',
+  getParentRoute: () => MainRouteRoute,
+} as any)
+const MainFlightFlightNumberRoute = MainFlightFlightNumberRouteImport.update({
+  id: '/flight/$flightNumber',
+  path: '/flight/$flightNumber',
   getParentRoute: () => MainRouteRoute,
 } as any)
 const MainAdminTracksRoute = MainAdminTracksRouteImport.update({
@@ -72,7 +90,10 @@ export interface FileRoutesByFullPath {
   '/api/$': typeof ApiSplatRoute
   '/admin/pgboss': typeof MainAdminPgbossRoute
   '/admin/tracks': typeof MainAdminTracksRoute
+  '/flight/$flightNumber': typeof MainFlightFlightNumberRoute
+  '/my-flights/search': typeof MainMyFlightsSearchRoute
   '/admin/': typeof MainAdminIndexRoute
+  '/my-flights/': typeof MainMyFlightsIndexRoute
 }
 export interface FileRoutesByTo {
   '/about': typeof MainAboutRoute
@@ -82,7 +103,10 @@ export interface FileRoutesByTo {
   '/': typeof MainIndexRoute
   '/admin/pgboss': typeof MainAdminPgbossRoute
   '/admin/tracks': typeof MainAdminTracksRoute
+  '/flight/$flightNumber': typeof MainFlightFlightNumberRoute
+  '/my-flights/search': typeof MainMyFlightsSearchRoute
   '/admin': typeof MainAdminIndexRoute
+  '/my-flights': typeof MainMyFlightsIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -94,7 +118,10 @@ export interface FileRoutesById {
   '/_main/': typeof MainIndexRoute
   '/_main/admin/pgboss': typeof MainAdminPgbossRoute
   '/_main/admin/tracks': typeof MainAdminTracksRoute
+  '/_main/flight/$flightNumber': typeof MainFlightFlightNumberRoute
+  '/_main/my-flights/search': typeof MainMyFlightsSearchRoute
   '/_main/admin/': typeof MainAdminIndexRoute
+  '/_main/my-flights/': typeof MainMyFlightsIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -106,7 +133,10 @@ export interface FileRouteTypes {
     | '/api/$'
     | '/admin/pgboss'
     | '/admin/tracks'
+    | '/flight/$flightNumber'
+    | '/my-flights/search'
     | '/admin/'
+    | '/my-flights/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/about'
@@ -116,7 +146,10 @@ export interface FileRouteTypes {
     | '/'
     | '/admin/pgboss'
     | '/admin/tracks'
+    | '/flight/$flightNumber'
+    | '/my-flights/search'
     | '/admin'
+    | '/my-flights'
   id:
     | '__root__'
     | '/_main'
@@ -127,7 +160,10 @@ export interface FileRouteTypes {
     | '/_main/'
     | '/_main/admin/pgboss'
     | '/_main/admin/tracks'
+    | '/_main/flight/$flightNumber'
+    | '/_main/my-flights/search'
     | '/_main/admin/'
+    | '/_main/my-flights/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -179,11 +215,32 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof MainAboutRouteImport
       parentRoute: typeof MainRouteRoute
     }
+    '/_main/my-flights/': {
+      id: '/_main/my-flights/'
+      path: '/my-flights'
+      fullPath: '/my-flights/'
+      preLoaderRoute: typeof MainMyFlightsIndexRouteImport
+      parentRoute: typeof MainRouteRoute
+    }
     '/_main/admin/': {
       id: '/_main/admin/'
       path: '/admin'
       fullPath: '/admin/'
       preLoaderRoute: typeof MainAdminIndexRouteImport
+      parentRoute: typeof MainRouteRoute
+    }
+    '/_main/my-flights/search': {
+      id: '/_main/my-flights/search'
+      path: '/my-flights/search'
+      fullPath: '/my-flights/search'
+      preLoaderRoute: typeof MainMyFlightsSearchRouteImport
+      parentRoute: typeof MainRouteRoute
+    }
+    '/_main/flight/$flightNumber': {
+      id: '/_main/flight/$flightNumber'
+      path: '/flight/$flightNumber'
+      fullPath: '/flight/$flightNumber'
+      preLoaderRoute: typeof MainFlightFlightNumberRouteImport
       parentRoute: typeof MainRouteRoute
     }
     '/_main/admin/tracks': {
@@ -210,7 +267,10 @@ interface MainRouteRouteChildren {
   MainIndexRoute: typeof MainIndexRoute
   MainAdminPgbossRoute: typeof MainAdminPgbossRoute
   MainAdminTracksRoute: typeof MainAdminTracksRoute
+  MainFlightFlightNumberRoute: typeof MainFlightFlightNumberRoute
+  MainMyFlightsSearchRoute: typeof MainMyFlightsSearchRoute
   MainAdminIndexRoute: typeof MainAdminIndexRoute
+  MainMyFlightsIndexRoute: typeof MainMyFlightsIndexRoute
 }
 
 const MainRouteRouteChildren: MainRouteRouteChildren = {
@@ -220,7 +280,10 @@ const MainRouteRouteChildren: MainRouteRouteChildren = {
   MainIndexRoute: MainIndexRoute,
   MainAdminPgbossRoute: MainAdminPgbossRoute,
   MainAdminTracksRoute: MainAdminTracksRoute,
+  MainFlightFlightNumberRoute: MainFlightFlightNumberRoute,
+  MainMyFlightsSearchRoute: MainMyFlightsSearchRoute,
   MainAdminIndexRoute: MainAdminIndexRoute,
+  MainMyFlightsIndexRoute: MainMyFlightsIndexRoute,
 }
 
 const MainRouteRouteWithChildren = MainRouteRoute._addFileChildren(

@@ -13,7 +13,7 @@ function NotFound() {
         </p>
         <p className="mt-6">
           <Link
-            to="/"
+            to="/my-flights"
             className="text-[var(--sea-accent)] font-medium underline decoration-[var(--sea-accent)]/50 underline-offset-2 hover:decoration-[var(--sea-accent)]"
           >
             Back to travelmode

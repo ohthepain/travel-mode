@@ -5,6 +5,33 @@ import { getBoss } from './boss'
 import type { SyncFlightPayload } from './sync-payload'
 import { flightNumbersFromPayload } from './sync-payload'
 
+/** Singleton key used by {@link enqueueSyncFlight} for a single flight number. */
+export function syncFlightSingletonKey(flightNumber: string) {
+  const fn = String(flightNumber).replace(/\s+/g, '').toUpperCase()
+  return `sync_flight:${fn}`
+}
+
+/** Sync indicator for UI: track data present (see {@link flightAlreadySynced}) and whether a worker is actively running sync. */
+export async function flightSyncUiState(flightNumber: string): Promise<{
+  synced: boolean
+  jobActive: boolean
+}> {
+  const fn = String(flightNumber).replace(/\s+/g, '').toUpperCase()
+  if (!fn) return { synced: false, jobActive: false }
+  const key = syncFlightSingletonKey(fn)
+  try {
+    const boss = await getBoss()
+    const [synced, jobs] = await Promise.all([
+      flightAlreadySynced(fn),
+      boss.findJobs<SyncFlightPayload>('sync_flight', { key }),
+    ])
+    const jobActive = jobs.some((j) => j.state === 'active')
+    return { synced, jobActive }
+  } catch {
+    return { synced: false, jobActive: false }
+  }
+}
+
 /** True if we already have any track for this flight in the current summary lookback window. */
 export async function flightAlreadySynced(flightNumber: string) {
   const days = getFlightSummaryLookbackDays()

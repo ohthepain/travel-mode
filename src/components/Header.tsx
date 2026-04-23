@@ -10,18 +10,18 @@ type AppHeaderBrandProps = {
   compact?: boolean
 }
 
-/** Top-left app mark; navigates home (pattern from nwords header). */
+/** Top-left app mark; navigates to My flights. */
 export function AppHeaderBrand({ className, compact }: AppHeaderBrandProps) {
   return (
     <Link
-      to="/"
+      to="/my-flights"
       className={cn(
         'group flex shrink-0 items-center gap-1.5 rounded-md text-[var(--sea-ink)] no-underline outline-none',
         'focus-visible:ring-2 focus-visible:ring-[var(--lagoon)]/40',
         'focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--header-bg)]',
         className,
       )}
-      aria-label="travelmode.live home"
+      aria-label="travelmode.live — My flights"
     >
       <span
         className="h-2 w-2 shrink-0 rounded-full bg-[linear-gradient(90deg,#56c6be,#7ed3bf)]"
@@ -39,16 +39,16 @@ export function AppHeaderBrand({ className, compact }: AppHeaderBrandProps) {
   )
 }
 
-const HOME_PATH = '/'
+const FLIGHT_PAGE_RE = /^\/flight\/[^/]+$/
 
 export default function Header() {
   const pathname = useRouterState({ select: (s) => s.location.pathname })
-  const isHome = pathname === HOME_PATH
+  const isFlightPage = FLIGHT_PAGE_RE.test(pathname)
   const mapMode = useFlightStore((s) => s.mapMode)
   const setMapMode = useFlightStore((s) => s.setMapMode)
 
   const shell =
-    isHome && !mapMode
+    isFlightPage && !mapMode
       ? 'max-w-md px-3 sm:max-w-lg sm:px-4'
       : 'page-wrap px-3 sm:px-4'
 
@@ -63,7 +63,7 @@ export default function Header() {
         <div className="flex min-w-0 flex-1 items-center gap-2 sm:contents sm:gap-0">
           <div className="flex min-w-0 flex-1 items-center gap-2 sm:max-w-min sm:shrink-0 sm:gap-3">
             <AppHeaderBrand compact className="min-w-0" />
-            {isHome && (
+            {isFlightPage && (
               <button
                 type="button"
                 onClick={() => setMapMode(!mapMode)}
@@ -80,25 +80,11 @@ export default function Header() {
 
           <div className="hidden min-w-0 flex-1 items-center justify-center gap-3 text-sm font-semibold sm:flex">
             <Link
-              to="/"
+              to="/my-flights"
               className="nav-link"
               activeProps={{ className: 'nav-link is-active' }}
             >
-              Home
-            </Link>
-            <Link
-              to="/about"
-              className="nav-link"
-              activeProps={{ className: 'nav-link is-active' }}
-            >
-              About
-            </Link>
-            <Link
-              to="/admin"
-              className="nav-link"
-              activeProps={{ className: 'nav-link is-active' }}
-            >
-              Admin
+              My flights
             </Link>
           </div>
         </div>
@@ -110,25 +96,11 @@ export default function Header() {
 
         <div className="flex w-full items-center gap-3 overflow-x-auto border-t border-[var(--line)] py-2 [scrollbar-width:none] sm:hidden [&::-webkit-scrollbar]:hidden">
           <Link
-            to="/"
+            to="/my-flights"
             className="nav-link shrink-0"
             activeProps={{ className: 'nav-link is-active' }}
           >
-            Home
-          </Link>
-          <Link
-            to="/about"
-            className="nav-link shrink-0"
-            activeProps={{ className: 'nav-link is-active' }}
-          >
-            About
-          </Link>
-          <Link
-            to="/admin"
-            className="nav-link shrink-0"
-            activeProps={{ className: 'nav-link is-active' }}
-          >
-            Admin
+            My flights
           </Link>
         </div>
       </div>

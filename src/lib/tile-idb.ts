@@ -85,3 +85,11 @@ export async function loadFlightPack(
   const db = await getDb()
   return db.get(PACK_STORE, packId(flightNumber, travelDate))
 }
+
+export async function hasFlightPack(
+  flightNumber: string,
+  travelDate: string,
+): Promise<boolean> {
+  const p = await loadFlightPack(flightNumber, travelDate)
+  return p != null
+}

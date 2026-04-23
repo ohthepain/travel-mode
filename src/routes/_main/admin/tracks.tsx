@@ -83,7 +83,7 @@ function TracksPage() {
               className="rounded-lg border border-[var(--line)] bg-[var(--header-bg)] px-3 py-2"
               value={fn}
               onChange={(e) => setFn(e.target.value.toUpperCase())}
-              placeholder="e.g. UA123 or UA"
+              placeholder="e.g. D84321"
             />
           </label>
           <div className="hidden sm:block" />

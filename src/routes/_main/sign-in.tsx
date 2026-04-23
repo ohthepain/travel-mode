@@ -173,7 +173,7 @@ function SignInPage() {
         <div className="absolute -bottom-32 -right-16 size-[28rem] rounded-full opacity-5 bg-white" />
 
         <Link
-          to="/"
+          to="/my-flights"
           className="text-sm text-slate-500 hover:text-slate-300 relative z-10"
         >
           <div className="flex items-center gap-3">
@@ -457,10 +457,10 @@ function SignInPage() {
 
             <p className="text-center mt-4">
               <Link
-                to="/"
+                to="/my-flights"
                 className="text-sm text-[var(--sea-ink-soft)] hover:text-[var(--sea-ink)]"
               >
-                ← Back to home
+                ← My flights
               </Link>
             </p>
 

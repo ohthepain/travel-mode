@@ -1,4 +1,5 @@
 import type { Job } from 'pg-boss'
+import type { Prisma } from '../../../generated/prisma/client'
 import { prisma } from '../db'
 import { buildCorridorAndBbox, lineFromCoords } from '../precompute'
 import {
@@ -28,7 +29,7 @@ function scheduleToPrisma(s: Fr24SummaryRow['schedule']) {
     scheduledDeparture: s.scheduledDeparture,
     scheduledArrival: s.scheduledArrival,
     flightTimeSec: s.flightTimeSec,
-    scheduleJson: s.scheduleJson === null ? null : (s.scheduleJson as object | null),
+    ...(s.scheduleJson != null ? { scheduleJson: s.scheduleJson as object } : {}),
   }
 }
 
@@ -87,7 +88,7 @@ export async function syncFlightJob(p: SyncFlightPayload) {
               flightNumber,
               travelDate,
               fr24FlightId: m.id,
-              routeGeojson: line,
+              routeGeojson: line as unknown as Prisma.InputJsonValue,
               corridorGeojson: corridor as object,
               bbox: bbox as object,
               firstTimestampMs: m.times[0] ?? null,
@@ -95,7 +96,7 @@ export async function syncFlightJob(p: SyncFlightPayload) {
               rawSummaryJson: { mock: true },
             },
             update: {
-              routeGeojson: line,
+              routeGeojson: line as unknown as Prisma.InputJsonValue,
               corridorGeojson: corridor as object,
               bbox: bbox as object,
               firstTimestampMs: m.times[0] ?? null,
@@ -157,7 +158,7 @@ export async function syncFlightJob(p: SyncFlightPayload) {
           flightNumber,
           travelDate,
           fr24FlightId,
-          routeGeojson: line,
+          routeGeojson: line as unknown as Prisma.InputJsonValue,
           corridorGeojson: corridor as object,
           bbox: bbox as object,
           firstTimestampMs: times.length ? Math.min(...times) : null,

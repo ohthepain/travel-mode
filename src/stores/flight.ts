@@ -1,8 +1,9 @@
 import { create } from 'zustand'
 import type { Feature, FeatureCollection, LineString } from 'geojson'
 import { pointAlong, addMinutes } from '../lib/interpolate'
-import { putTile, saveFlightPack } from '../lib/tile-idb'
+import { loadFlightPack, putTile, saveFlightPack } from '../lib/tile-idb'
 import { appMapTileUrlTemplate, countTilesBbox, tileRangeForBbox } from '../lib/tiles'
+import { effectiveFlightMapBbox } from '../lib/route-bbox-expand'
 
 const Z_MIN = 3
 const Z_MAX = 8
@@ -30,6 +31,8 @@ export type FlightState = {
   setCorrection: (e: number, n: number) => void
   setUseOffline: (o: boolean) => void
   loadPackFromIdb: () => Promise<void>
+  /** Clear line/bbox from a previous flight when the route (flight+date) changes; IDB can refill. */
+  clearTrackData: () => void
   downloadTiles: () => Promise<void>
   estimatedPosition: (now: Date) => [number, number] | null
   resetTileProgress: () => void
@@ -86,11 +89,19 @@ export const useFlightStore = create<FlightState>((set, get) => ({
   setCorrection: (e, n) => set({ correctionEN: { e, n } }),
   setUseOffline: (o) => set({ useOffline: o }),
   resetTileProgress: () => set({ tileProgress: null }),
+  clearTrackData: () =>
+    set({ line: null, lastGeojson: null, bbox: null }),
   loadPackFromIdb: async () => {
     const { flightNumber, travelDate } = get()
-    if (!flightNumber || !travelDate) return
-    const { loadFlightPack } = await import('../lib/tile-idb')
+    if (!flightNumber || !travelDate) {
+      set({ useOffline: false })
+      return
+    }
+    const fn0 = flightNumber
+    const td0 = travelDate
     const p = await loadFlightPack(flightNumber, travelDate)
+    const cur = get()
+    if (cur.flightNumber !== fn0 || cur.travelDate !== td0) return
     if (p) {
       const g = p.geojson as FeatureCollection
       const line = firstLineString(g)
@@ -100,62 +111,60 @@ export const useFlightStore = create<FlightState>((set, get) => ({
         lastGeojson: p.geojson,
         bbox: p.bbox,
         takeoff: t0 != null ? new Date(t0) : new Date(),
+        useOffline: true,
       })
+    } else {
+      set({ useOffline: false })
     }
   },
   downloadTiles: async () => {
     const { line, lastGeojson, flightNumber, travelDate, bbox } = get()
-    let b = bbox
-    if (!b && line) {
-      const c = line.geometry.coordinates
-      let w = 180,
-        s = 85,
-        e = -180,
-        n = -85
-      for (const [lon, lat] of c) {
-        w = Math.min(w, lon)
-        e = Math.max(e, lon)
-        s = Math.min(s, lat)
-        n = Math.max(n, lat)
-      }
-      b = [w, s, e, n]
+    const b = effectiveFlightMapBbox(line, bbox)
+    if (!b) {
+      throw new Error(
+        'Load tracks first so we know the map area, then try Save for offline again.',
+      )
     }
-    if (!b) return
     const [w, s, e, n] = b
     const total = countTilesBbox(Z_MIN, Z_MAX, w, s, e, n)
     set({ tileProgress: { done: 0, total } })
-    const base = appMapTileUrlTemplate()
-    let done = 0
-    for (let z = Z_MIN; z <= Z_MAX; z++) {
-      for (const t of tileRangeForBbox(z, w, s, e, n)) {
-        const u = base
-          .replace('{z}', String(t.z))
-          .replace('{x}', String(t.x))
-          .replace('{y}', String(t.y))
-        const res = await fetch(u)
-        if (res.ok) {
-          const buf = await res.arrayBuffer()
-          await putTile(t, buf)
-        } else if (res.status === 503) {
-          const body = await res.text()
-          throw new Error(
-            body || 'Tile proxy: set MAPTILER_API_KEY or VITE_MAPTILER_KEY in .env and restart the dev server.',
-          )
-        } else if (res.status === 502) {
-          const body = await res.text()
-          throw new Error(
-            body || 'MapTiler returned an error. Check the API key and MapTiler account.',
-          )
+    try {
+      const base = appMapTileUrlTemplate()
+      let done = 0
+      for (let z = Z_MIN; z <= Z_MAX; z++) {
+        for (const t of tileRangeForBbox(z, w, s, e, n)) {
+          const u = base
+            .replace('{z}', String(t.z))
+            .replace('{x}', String(t.x))
+            .replace('{y}', String(t.y))
+          const res = await fetch(u)
+          if (res.ok) {
+            const buf = await res.arrayBuffer()
+            await putTile(t, buf)
+          } else if (res.status === 503) {
+            const body = await res.text()
+            throw new Error(
+              body || 'Tile proxy: set MAPTILER_API_KEY or VITE_MAPTILER_KEY in .env and restart the dev server.',
+            )
+          } else if (res.status === 502) {
+            const body = await res.text()
+            throw new Error(
+              body || 'MapTiler returned an error. Check the API key and MapTiler account.',
+            )
+          }
+          done++
+          set({ tileProgress: { done, total } })
         }
-        done++
-        set({ tileProgress: { done, total } })
       }
+      let fc: FeatureCollection = { type: 'FeatureCollection', features: line ? [line] : [] }
+      if (isFeatureCollection(lastGeojson)) {
+        fc = lastGeojson
+      }
+      await saveFlightPack(flightNumber, travelDate, { geojson: fc, bbox: b })
+      set({ useOffline: true })
+    } finally {
+      set({ tileProgress: null })
     }
-    let fc: FeatureCollection = { type: 'FeatureCollection', features: line ? [line] : [] }
-    if (isFeatureCollection(lastGeojson)) {
-      fc = lastGeojson
-    }
-    await saveFlightPack(flightNumber, travelDate, { geojson: fc, bbox: b })
   },
   estimatedPosition: (now) => {
     const { line, takeoff, takeoffOffsetMin, correctionEN } = get()

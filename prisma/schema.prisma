@@ -21,9 +21,31 @@ model User {
   updatedAt     DateTime  @updatedAt
   sessions      Session[]
   accounts      Account[]
+  savedFlights  UserSavedFlight[]
 
   @@unique([email])
   @@map("user")
+}
+
+/// Flights the signed-in user saved from search (for “My flights”).
+model UserSavedFlight {
+  id                 String    @id @default(cuid())
+  userId             String
+  user               User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  flightNumber       String
+  /// Calendar date in UTC (time component ignored), same as Track.travelDate
+  travelDate         DateTime  @db.Date
+  fr24FlightId       String?
+  originIata         String?
+  destIata           String?
+  scheduledDeparture DateTime?
+  scheduledArrival   DateTime?
+  takeoffAt          DateTime?
+  createdAt          DateTime  @default(now())
+
+  @@unique([userId, flightNumber, travelDate])
+  @@index([userId])
+  @@map("user_saved_flight")
 }
 
 model Session {
