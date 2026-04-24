@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import type { Feature, FeatureCollection, LineString } from 'geojson'
-import { pointAlong, addMinutes } from '../lib/interpolate'
+import { pointAlong, addMinutes, bearingAlongLine } from '../lib/interpolate'
 import { loadFlightPack, putTile, saveFlightPack } from '../lib/tile-idb'
 import { appMapTileUrlTemplate, countTilesBbox, tileRangeForBbox } from '../lib/tiles'
 import { effectiveFlightMapBbox } from '../lib/route-bbox-expand'
@@ -211,6 +211,32 @@ export function flightTrackDurationMs(line: Feature<LineString> | null): number 
   const t1 = lastTime(line)
   if (t0 == null || t1 == null) return null
   return Math.max(1, t1 - t0)
+}
+
+/**
+ * 0..1 along the line for the same time basis as `positionAtElapsedMs` (midpoint if timestamps missing).
+ */
+export function flightPlaybackProgress01(
+  line: Feature<LineString> | null,
+  elapsedMs: number,
+): number {
+  if (!line?.geometry) return 0
+  const t0 = firstTime(line)
+  const t1 = lastTime(line)
+  if (t0 == null || t1 == null) {
+    return 0.5
+  }
+  const duration = Math.max(1, t1 - t0)
+  return Math.min(1, Math.max(0, elapsedMs / duration))
+}
+
+/** Turf bearing (° clockwise from north) along the track at playback time, or null if no direction. */
+export function trackBearingTurf(
+  line: Feature<LineString> | null,
+  elapsedMs: number,
+): number | null {
+  if (!line) return null
+  return bearingAlongLine(line, flightPlaybackProgress01(line, elapsedMs))
 }
 
 function firstTime(f: Feature<LineString>) {

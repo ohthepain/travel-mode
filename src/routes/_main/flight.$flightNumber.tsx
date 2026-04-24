@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { FlightMap } from '../../components/FlightMap'
 import { cn } from '../../lib/cn'
 import { effectiveFlightMapBbox } from '../../lib/route-bbox-expand'
-import { flightTrackDurationMs, useFlightStore } from '../../stores/flight'
+import { flightTrackDurationMs, trackBearingTurf, useFlightStore } from '../../stores/flight'
 
 type FlightSearch = { date?: string }
 
@@ -62,6 +62,7 @@ function FlightPage() {
   const [elapsedMs, setElapsedMs] = useState(0)
   const [isPlaying, setIsPlaying] = useState(false)
   const [hasStartedPlayback, setHasStartedPlayback] = useState(false)
+  const [compassMode, setCompassMode] = useState(true)
   const playbackAnchorWallMs = useRef(0)
   const playbackAnchorElapsedMs = useRef(0)
 
@@ -69,6 +70,7 @@ function FlightPage() {
     setElapsedMs(0)
     setIsPlaying(false)
     setHasStartedPlayback(false)
+    setCompassMode(true)
   }, [mapSessionKey])
 
   useEffect(() => {
@@ -123,6 +125,17 @@ function FlightPage() {
     if (mapBbox) return [(mapBbox[0] + mapBbox[2]) / 2, (mapBbox[1] + mapBbox[3]) / 2]
     return [0, 20]
   }, [fn, packDateKey, line, mapBbox])
+
+  const trackBearingTurfDeg = useMemo(
+    () => trackBearingTurf(line, elapsedMs),
+    [line, elapsedMs],
+  )
+  const mapBearing = useMemo(() => {
+    if (compassMode) return 0
+    if (trackBearingTurfDeg == null) return 0
+    // MapLibre: degrees counterclockwise from north; Turf bearing is clockwise.
+    return -trackBearingTurfDeg
+  }, [compassMode, trackBearingTurfDeg])
 
   const loadTracks = useCallback(async () => {
     setMsg(null)
@@ -311,6 +324,9 @@ function FlightPage() {
         bbox={mapBbox}
         mapSessionKey={mapSessionKey}
         initialOfflineCenter={initialOfflineCenter}
+        mapBearing={mapBearing}
+        compassMode={compassMode}
+        onCompassModeChange={setCompassMode}
       />
 
       <section className="mt-4 max-w-3xl rounded-xl border border-slate-800 bg-slate-900/50 p-4">

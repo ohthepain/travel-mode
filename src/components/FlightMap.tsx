@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import maplibregl from 'maplibre-gl'
 import type { Feature, LineString } from 'geojson'
+import { Compass } from 'lucide-react'
 import { getTileData } from '../lib/tile-idb'
 import { cn } from '../lib/cn'
 import {
@@ -42,6 +43,11 @@ export type FlightMapProps = {
   mapSessionKey: string
   /** Seed for offline user anchor; not driven by live position updates. */
   initialOfflineCenter: [number, number]
+  /** MapLibre rotation in degrees (counterclockwise from north; track-up mode uses negated Turf track bearing). */
+  mapBearing: number
+  /** When true, north is at the top; when false, map follows track direction. */
+  compassMode: boolean
+  onCompassModeChange: (next: boolean) => void
 }
 
 function parseOfftmUrl(url: string) {
@@ -80,6 +86,9 @@ export function FlightMap({
   bbox,
   mapSessionKey,
   initialOfflineCenter,
+  mapBearing,
+  compassMode,
+  onCompassModeChange,
 }: FlightMapProps) {
   const el = useRef<HTMLDivElement | null>(null)
   const map = useRef<maplibregl.Map | null>(null)
@@ -90,6 +99,9 @@ export function FlightMap({
   const userOverrideViewRef = useRef(false)
   const [err, setErr] = useState<string | null>(null)
   const [mapReady, setMapReady] = useState(false)
+  /** Latest bearing for offline bbox clamp (avoid reattaching effect on every playback tick). */
+  const mapBearingRef = useRef(mapBearing)
+  mapBearingRef.current = mapBearing
 
   useEffect(() => {
     userOverrideViewRef.current = false
@@ -187,8 +199,8 @@ export function FlightMap({
     if (userOverrideViewRef.current) return
     // Depend on numeric coords, not the `center` tuple identity — parent often passes a new
     // array each render (same values), which would reset the map after every pan.
-    m.jumpTo({ center: [centerLng, centerLat], zoom })
-  }, [centerLng, centerLat, zoom, mapReady, useOfflineRaster])
+    m.jumpTo({ center: [centerLng, centerLat], zoom, bearing: mapBearing })
+  }, [centerLng, centerLat, zoom, mapBearing, mapReady, useOfflineRaster])
 
   useEffect(() => {
     const m = map.current
@@ -231,7 +243,7 @@ export function FlightMap({
       const [lng, lat] = userAnchorRef.current
       if (viewportFitsInBBox(m, bbox)) return
       const [L, φ] = clampCenterToContainBBox(m, lng, lat, bbox)
-      m.jumpTo({ center: [L, φ] })
+      m.jumpTo({ center: [L, φ], bearing: mapBearingRef.current })
     }
 
     const onMoveEnd = () => {
@@ -280,6 +292,13 @@ export function FlightMap({
     bbox?.[3],
   ])
 
+  useEffect(() => {
+    const maplib = map.current
+    if (!maplib || !mapReady) return
+    if (!useOfflineRaster) return
+    maplib.setBearing(mapBearing)
+  }, [mapReady, useOfflineRaster, mapBearing])
+
   const [planeLng, planeLat] = plane ?? [NaN, NaN]
   useEffect(() => {
     const m = map.current
@@ -310,6 +329,21 @@ export function FlightMap({
           useOfflineRaster && 'bg-zinc-600',
         )}
       />
+      <div className="absolute top-2 left-2 z-10">
+        <button
+          type="button"
+          className="flex items-center justify-center rounded-lg border border-slate-600/90 bg-slate-900/95 p-2 text-slate-200 shadow-md backdrop-blur-sm hover:bg-slate-800/95 disabled:cursor-not-allowed disabled:opacity-50"
+          onClick={() => onCompassModeChange(!compassMode)}
+          aria-pressed={compassMode}
+          title={
+            compassMode
+              ? 'North at top of screen (on). Click for heading-up: top points forward along track.'
+              : 'Heading up: top of screen is along-track. Click for north at top.'
+          }
+        >
+          <Compass className="size-5 shrink-0" aria-hidden />
+        </button>
+      </div>
     </div>
   )
 }

@@ -289,6 +289,138 @@ export type Fr24SummaryRow = {
   schedule: ParsedFr24Schedule
 }
 
+/** Aligned with @flightradar24/fr24sdk `IATA_FLIGHT_NUMBER_REGEXP` (IATA/number must pass API validation). */
+const FR24_IATA_FLIGHT_RE = /^([A-Z]\d|\d[A-Z]|[A-Z]{2})(\d+)$/i
+
+export function normalizeIataFlightLabel(flight: string): string {
+  return flight.replace(/\s+/g, '').toUpperCase()
+}
+
+/**
+ * IATA designators the user might type (e.g. D8+4322) vs. how FR24 lists the same leg (often DY+4322).
+ * NSZ+4322 is not valid in the `flights` param (ICAO+number); we expand to D8/DY+number only.
+ */
+export function expandFlightNumberCandidates(flight: string): string[] {
+  const s = normalizeIataFlightLabel(flight)
+  const out = new Set<string>()
+
+  const addIfIata = (v: string) => {
+    const u = normalizeIataFlightLabel(v)
+    if (FR24_IATA_FLIGHT_RE.test(u)) out.add(u)
+  }
+  addIfIata(s)
+  const nsz = /^NSZ(\d+)$/i.exec(s)
+  if (nsz) {
+    addIfIata(`D8${nsz[1]}`)
+    addIfIata(`DY${nsz[1]}`)
+  }
+  const d8dy = /^(D8|DY)(\d+)$/i.exec(s)
+  if (d8dy) {
+    addIfIata(d8dy[1].toUpperCase() === 'D8' ? `DY${d8dy[2]}` : `D8${d8dy[2]}`)
+  }
+
+  if (out.size > 0) return [...out]
+  return [s]
+}
+
+/** Aligned with FR24 callsign list validation (3–8 chars, letter/digit/`-`). */
+const FR24_CALLSIGN_RE = /^(?:[A-Z0-9-]{3,8}|\*[A-Z0-9-]{3,7}|[A-Z0-9-]{3,7}\*)$/i
+
+/**
+ * Fr24 flight summary uses `flights` (IATA) and `callsigns` (transponder) as separate
+ * indices; Norwegian Air Sweden often uses NSZ+nn on the wire while tickets show D8/DY+nn.
+ */
+export function expandFr24CallsignCandidates(flight: string): string[] {
+  const s = normalizeIataFlightLabel(flight)
+  const out = new Set<string>()
+  const add = (v: string) => {
+    const u = v.toUpperCase()
+    if (FR24_CALLSIGN_RE.test(u)) out.add(u)
+  }
+  if (/^([A-Z]{3})(\d+)$/.test(s)) add(s)
+  const m = FR24_IATA_FLIGHT_RE.exec(s)
+  if (m?.[2]) add(`NSZ${m[2]}`)
+  return [...out]
+}
+
+/**
+ * Widen `first_seen` query window: FR24 uses `first_seen` for the range, not always the
+ * scheduled local day; ±1 calendar day UTC catches edge first-seen spilling across UTC days.
+ */
+export function fr24SummaryWindowAroundTravelDate(ymd: string): {
+  from: string
+  to: string
+} {
+  const day = new Date(`${ymd.trim().slice(0, 10)}T00:00:00.000Z`)
+  const from = new Date(day.getTime() - 86_400_000)
+  const to = new Date(day.getTime() + 2 * 86_400_000 - 1000)
+  return { from: formatFr24UtcDateTime(from), to: formatFr24UtcDateTime(to) }
+}
+
+const utcYmd = (d: Date) =>
+  `${d.getUTCFullYear()}-${PAD2(d.getUTCMonth() + 1)}-${PAD2(d.getUTCDate())}`
+
+/**
+ * After querying a ~3-day `first_seen` window, keep rows whose schedule or `first_seen`
+ * falls on the user-picked **UTC** calendar day (`YYYY-MM-DD`).
+ */
+export function summaryRowMatchesTravelDate(
+  r: Fr24SummaryRow,
+  travelYmd: string,
+): boolean {
+  const y = travelYmd.trim().slice(0, 10)
+  if (r.schedule.scheduledDeparture && utcYmd(r.schedule.scheduledDeparture) === y)
+    return true
+  if (r.schedule.scheduledArrival && utcYmd(r.schedule.scheduledArrival) === y)
+    return true
+  const o = r.rawRow
+  const firstSeen = parseFr24DateTime(o.first_seen)
+  if (firstSeen && utcYmd(firstSeen) === y) return true
+  const lastSeen = parseFr24DateTime(o.last_seen)
+  if (lastSeen && utcYmd(lastSeen) === y) return true
+  const dep = parseFr24DateTime(
+    o.datetime_scheduled_depart ?? o.time_scheduled_depart,
+  )
+  if (dep && utcYmd(dep) === y) return true
+  const arr = parseFr24DateTime(
+    o.datetime_scheduled_arrival ?? o.time_scheduled_arrival,
+  )
+  if (arr && utcYmd(arr) === y) return true
+  return false
+}
+
+/** No parsed times on the leg — common for *upcoming* rows before FR24 fills the schedule. */
+export function fr24RowHasNoDateSignals(r: Fr24SummaryRow): boolean {
+  if (r.schedule.scheduledDeparture) return false
+  if (r.schedule.scheduledArrival) return false
+  if (r.schedule.takeoffAt) return false
+  if (r.schedule.landedAt) return false
+  const o = r.rawRow
+  if (parseFr24DateTime(o.first_seen)) return false
+  if (parseFr24DateTime(o.last_seen)) return false
+  if (
+    parseFr24DateTime(o.datetime_scheduled_depart ?? o.time_scheduled_depart)
+  )
+    return false
+  if (
+    parseFr24DateTime(o.datetime_scheduled_arrival ?? o.time_scheduled_arrival)
+  )
+    return false
+  if (parseFr24DateTime(o.datetime_takeoff ?? o.time_takeoff)) return false
+  if (parseFr24DateTime(o.datetime_landed ?? o.time_landed)) return false
+  return true
+}
+
+export function dedupeFr24SummaryRows(
+  rows: Fr24SummaryRow[],
+): Fr24SummaryRow[] {
+  const m = new Map<string, Fr24SummaryRow>()
+  for (const r of rows) {
+    if (!m.has(r.fr24FlightId)) m.set(r.fr24FlightId, r)
+  }
+  return [...m.values()]
+}
+
 /** One row per leg from getFull / getLight, with parsed schedule and IATA flight number. */
 export function parseSummaryRows(raw: unknown): Fr24SummaryRow[] {
   const out: Fr24SummaryRow[] = []

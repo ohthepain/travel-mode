@@ -11,10 +11,17 @@ import { featureCollection } from '../geojson'
 import { effectiveFlightMapBbox } from '../../lib/route-bbox-expand'
 import { getSessionUserId } from '../session'
 import {
-  formatFr24UtcDateTime,
+  dedupeFr24SummaryRows,
+  expandFlightNumberCandidates,
+  expandFr24CallsignCandidates,
   fr24Request,
   getFr24Client,
+  normalizeIataFlightLabel,
   parseSummaryRows,
+  fr24RowHasNoDateSignals,
+  fr24SummaryWindowAroundTravelDate,
+  summaryRowMatchesTravelDate,
+  type Fr24SummaryRow,
 } from '../fr24/client'
 import { Prisma } from '../../../generated/prisma/client'
 
@@ -44,21 +51,86 @@ flightRoutes.get('/search', async (c) => {
   }
 
   try {
-    const start = new Date(day)
-    const end = new Date(day.getTime() + 86_400_000 - 1000)
-    const flight_datetime_from = formatFr24UtcDateTime(start)
-    const flight_datetime_to = formatFr24UtcDateTime(end)
-    const full = await fr24Request(() =>
-      client.flightSummary.getFull({
-        flight_datetime_from,
-        flight_datetime_to,
-        flights: [flightNumber],
-      }),
-    )
-    const rows = parseSummaryRows(full).filter(
-      (r) => r.flightNumber.replace(/\s+/g, '') === flightNumber.replace(/\s+/g, ''),
-    )
     const travelDateIso = date.trim().slice(0, 10)
+    const routeFrom = c.req.query('from')?.trim().toUpperCase()
+    const routeTo = c.req.query('to')?.trim().toUpperCase()
+    const validRoute =
+      routeFrom &&
+      routeTo &&
+      /^[A-Z]{3}$/.test(routeFrom) &&
+      /^[A-Z]{3}$/.test(routeTo)
+
+    const { from: flight_datetime_from, to: flight_datetime_to } =
+      fr24SummaryWindowAroundTravelDate(travelDateIso)
+    const fr24FlightCandidates = expandFlightNumberCandidates(flightNumber)
+    const candidateSet = new Set(
+      fr24FlightCandidates.map((x) => normalizeIataFlightLabel(x)),
+    )
+    const callsignCandidates = expandFr24CallsignCandidates(flightNumber)
+
+    /** Upcoming legs often have no times yet; keep those only for direct flight/callsign queries. */
+    const filterIataOrCallsign = (parsed: Fr24SummaryRow[]) =>
+      parsed.filter((r) => {
+        if (!candidateSet.has(normalizeIataFlightLabel(r.flightNumber)))
+          return false
+        if (summaryRowMatchesTravelDate(r, travelDateIso)) return true
+        if (fr24RowHasNoDateSignals(r)) return true
+        return false
+      })
+
+    const filterRoute = (parsed: Fr24SummaryRow[]) =>
+      parsed.filter(
+        (r) =>
+          candidateSet.has(normalizeIataFlightLabel(r.flightNumber)) &&
+          summaryRowMatchesTravelDate(r, travelDateIso),
+      )
+
+    let merged: Fr24SummaryRow[] = []
+
+    merged = filterIataOrCallsign(
+      parseSummaryRows(
+        await fr24Request(() =>
+          client.flightSummary.getFull({
+            flight_datetime_from,
+            flight_datetime_to,
+            flights: fr24FlightCandidates,
+            limit: 100,
+          }),
+        ),
+      ),
+    )
+
+    if (!merged.length && callsignCandidates.length > 0) {
+      merged = filterIataOrCallsign(
+        parseSummaryRows(
+          await fr24Request(() =>
+            client.flightSummary.getFull({
+              flight_datetime_from,
+              flight_datetime_to,
+              callsigns: callsignCandidates,
+              limit: 100,
+            }),
+          ),
+        ),
+      )
+    }
+
+    if (!merged.length && validRoute) {
+      merged = filterRoute(
+        parseSummaryRows(
+          await fr24Request(() =>
+            client.flightSummary.getFull({
+              flight_datetime_from,
+              flight_datetime_to,
+              routes: `${routeFrom}-${routeTo}`,
+              limit: 10_000,
+            }),
+          ),
+        ),
+      )
+    }
+
+    const rows = dedupeFr24SummaryRows(merged)
     const results = rows.map((r) => {
       const s = r.schedule
       return {
@@ -96,7 +168,13 @@ flightRoutes.get('/search', async (c) => {
       return { ...r, syncStatus }
     })
 
-    return c.json({ results: resultsWithSync })
+    return c.json({
+      results: resultsWithSync,
+      searchNote:
+        resultsWithSync.length === 0
+          ? 'This search uses the Flightradar24 API, which can list a flight for one date but not for another: legs usually appear there after the aircraft is on the network, not on a full timetable like FlightAware. You may see the same number for yesterday but not for today; try again closer to departure or after takeoff. Optional: IATA (D8/DY/4322) and origin/destination to search the route.'
+          : undefined,
+    })
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'search failed'
     return c.json({ error: msg }, 502)

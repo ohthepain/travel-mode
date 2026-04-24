@@ -128,3 +128,59 @@ model Track {
   @@index([flightNumber, travelDate])
   @@map("track")
 }
+
+// --- AirLabs reference + schedule cache (on-demand) ---
+
+model AirlabsAirport {
+  iataCode    String   @id
+  icaoCode    String?
+  name        String
+  cityCode    String
+  countryCode String
+  lat         Float
+  lon         Float
+  rawJson     Json?
+  fetchedAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("airlabs_airport")
+}
+
+model AirlabsAirline {
+  iataCode     String   @id
+  icaoCode     String?
+  name         String
+  countryCode  String
+  rawJson      Json?
+  fetchedAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@map("airlabs_airline")
+}
+
+model AirlabsCity {
+  cityCode    String   @id
+  name        String
+  countryCode String
+  lat         Float
+  lon         Float
+  rawJson     Json?
+  fetchedAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("airlabs_city")
+}
+
+/// Cached `GET /flight-schedule` responses (JSON payload is FlightSchedule[]).
+model AirlabsScheduleCache {
+  id         String   @id @default(cuid())
+  flightIata String
+  /// `YYYY-MM-DD` or the literal `nodate` when the client omits `date`.
+  dateKey    String
+  payload    Json
+  fetchedAt  DateTime @default(now())
+
+  @@unique([flightIata, dateKey])
+  @@index([fetchedAt])
+  @@map("airlabs_schedule_cache")
+}

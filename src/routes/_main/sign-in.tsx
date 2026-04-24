@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from '@tanstack/react-router'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import { ArrowRight, Eye, EyeOff, Lock, Mail } from 'lucide-react'
 import { authClient, signIn, signUp } from '../../lib/auth-client'
@@ -8,13 +8,41 @@ import ThemeToggle from '../../components/ThemeToggle'
 const INTRO =
   'See the ground from your window when you fly: sync flight tracks, and go offline. Sign in to sync preferences across devices later.'
 
+function safeRedirectPath(raw: string | undefined): string {
+  if (!raw || typeof raw !== 'string') return '/'
+  const t = raw.trim()
+  if (!t.startsWith('/') || t.startsWith('//')) return '/'
+  try {
+    const u = new URL(t, window.location.origin)
+    if (u.origin !== window.location.origin) return '/'
+    return u.pathname + u.search + u.hash
+  } catch {
+    return '/'
+  }
+}
+
+type SignInSearch = { redirect?: string }
+
 export const Route = createFileRoute('/_main/sign-in')({
+  validateSearch: (search: Record<string, unknown>): SignInSearch => {
+    const r = search.redirect
+    if (typeof r !== 'string' || !r.trim()) return {}
+    const t = r.trim()
+    if (!t.startsWith('/') || t.startsWith('//')) return {}
+    return { redirect: t }
+  },
   component: SignInPage,
 })
 
 type Tab = 'password' | 'magic'
 
 function SignInPage() {
+  const { redirect: redirectParam } = Route.useSearch()
+  const afterAuthPath = useMemo(
+    () => safeRedirectPath(redirectParam),
+    [redirectParam],
+  )
+
   const [mode, setMode] = useState<'sign-in' | 'sign-up'>('sign-in')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -38,7 +66,12 @@ function SignInPage() {
     if (isLocalhost && publicAppUrl) {
       const target = new URL(publicAppUrl)
       if (target.origin !== window.location.origin) {
-        window.location.href = `${target.origin}/sign-in?continue=google`
+        const u = new URL(`${target.origin}/sign-in`, target.origin)
+        u.searchParams.set('continue', 'google')
+        if (afterAuthPath !== '/') {
+          u.searchParams.set('redirect', afterAuthPath)
+        }
+        window.location.href = u.toString()
         return
       }
     }
@@ -46,7 +79,7 @@ function SignInPage() {
     try {
       const result = await signIn.social({
         provider: 'google',
-        callbackURL: '/',
+        callbackURL: afterAuthPath,
       })
       if (result.error) {
         toast.error(result.error.message ?? 'Google sign in failed')
@@ -56,12 +89,18 @@ function SignInPage() {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [afterAuthPath])
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
     if (params.get('continue') === 'google') {
-      window.history.replaceState({}, '', window.location.pathname)
+      params.delete('continue')
+      const q = params.toString()
+      window.history.replaceState(
+        {},
+        '',
+        q ? `${window.location.pathname}?${q}` : window.location.pathname,
+      )
       void handleGoogleSignIn()
     }
   }, [handleGoogleSignIn])
@@ -75,7 +114,7 @@ function SignInPage() {
           const result = await signIn.email({
             email,
             password,
-            callbackURL: '/',
+            callbackURL: afterAuthPath,
           })
           if (result.error) {
             const st = (result.error as { status?: number }).status
@@ -87,11 +126,11 @@ function SignInPage() {
             return
           }
           toast.success('Signed in')
-          window.location.href = '/'
+          window.location.href = afterAuthPath
         } else {
           const result = await signIn.magicLink({
             email,
-            callbackURL: '/',
+            callbackURL: afterAuthPath,
           })
           if (result.error) {
             toast.error(result.error.message ?? 'Magic link failed')
@@ -104,7 +143,7 @@ function SignInPage() {
           email,
           password,
           name: name || email,
-          callbackURL: '/',
+          callbackURL: afterAuthPath,
         })
         if (result.error) {
           toast.error(result.error.message ?? 'Sign up failed')
@@ -154,7 +193,7 @@ function SignInPage() {
     try {
       const result = await authClient.sendVerificationEmail({
         email: email.trim(),
-        callbackURL: '/',
+        callbackURL: afterAuthPath,
       })
       if (result.error) {
         toast.error(result.error.message ?? 'Could not send verification email')
