@@ -128,8 +128,6 @@ export function FlightMap({
   /** Latest bearing for offline bbox clamp (avoid reattaching effect on every playback tick). */
   const mapBearingRef = useRef(mapBearing)
   mapBearingRef.current = mapBearing
-  /** Tracks followMode across renders so we can run a one-shot recenter only when it turns on. */
-  const followModePrevRef = useRef(false)
 
   useEffect(() => {
     userOverrideViewRef.current = false
@@ -139,7 +137,6 @@ export function FlightMap({
     if (lastSessionKeyRef.current !== mapSessionKey) {
       lastSessionKeyRef.current = mapSessionKey
       userAnchorRef.current = initialOfflineCenter
-      followModePrevRef.current = false
     }
   }, [mapSessionKey, initialOfflineCenter])
 
@@ -222,36 +219,36 @@ export function FlightMap({
   }, [line, mapReady])
 
   const [centerLng, centerLat] = center
+  const [planeLng, planeLat] = plane ?? [NaN, NaN]
+
   useEffect(() => {
     const m = map.current
     if (!m || !mapReady || useOfflineRaster) return
+    if (followMode) return
     if (userOverrideViewRef.current) return
     // Depend on numeric coords, not the `center` tuple identity — parent often passes a new
     // array each render (same values), which would reset the map after every pan.
     m.jumpTo({ center: [centerLng, centerLat], zoom, bearing: mapBearing })
-  }, [centerLng, centerLat, zoom, mapBearing, mapReady, useOfflineRaster])
+  }, [centerLng, centerLat, zoom, mapBearing, mapReady, useOfflineRaster, followMode])
 
-  /** When follow mode turns on, center the map on the plane once; single bbox nudge so tiles stay in view. */
+  /** Follow mode: keep map centered on the plane (single bbox nudge when offline / bbox set). */
   useEffect(() => {
     const m = map.current
-    if (!m || !mapReady) return
-    const turnedOn = followMode && !followModePrevRef.current
-    followModePrevRef.current = followMode
-    if (!turnedOn) return
-    if (plane == null || Number.isNaN(plane[0]) || Number.isNaN(plane[1])) return
-    const [plng, plat] = plane
+    if (!m || !mapReady || !followMode) return
+    if (plane == null || Number.isNaN(planeLng) || Number.isNaN(planeLat)) return
     const z = useOfflineRaster ? Math.max(zoom, m.getMinZoom()) : zoom
-    let L = plng
-    let φ = plat
+    let L = planeLng
+    let φ = planeLat
     if (bbox) {
-      ;[L, φ] = centerOnPlaneWithBBoxNudge(m, plng, plat, bbox, z, mapBearing)
+      ;[L, φ] = centerOnPlaneWithBBoxNudge(m, planeLng, planeLat, bbox, z, mapBearing)
     }
     m.jumpTo({ center: [L, φ], zoom: z, bearing: mapBearing })
     if (useOfflineRaster) userAnchorRef.current = [L, φ]
   }, [
     followMode,
     mapReady,
-    plane,
+    planeLng,
+    planeLat,
     mapBearing,
     zoom,
     useOfflineRaster,
@@ -358,7 +355,6 @@ export function FlightMap({
     maplib.setBearing(mapBearing)
   }, [mapReady, useOfflineRaster, mapBearing])
 
-  const [planeLng, planeLat] = plane ?? [NaN, NaN]
   useEffect(() => {
     const m = map.current
     if (!m || !mapReady) return
