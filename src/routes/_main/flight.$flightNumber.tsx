@@ -44,6 +44,10 @@ function FlightPage() {
   const downloadTiles = useFlightStore((s) => s.downloadTiles)
   const positionAtElapsedMs = useFlightStore((s) => s.positionAtElapsedMs)
   const mapMode = useFlightStore((s) => s.mapMode)
+  const lastTracksPayload = useFlightStore((s) => s.lastTracksPayload)
+
+  const isDev = import.meta.env.DEV
+  const [showTracksJson, setShowTracksJson] = useState(false)
 
   const packDateKey = travelDateQ ?? 'latest'
   const mapSessionKey = `${fn}:${packDateKey}`
@@ -133,8 +137,10 @@ function FlightPage() {
   const mapBearing = useMemo(() => {
     if (compassMode) return 0
     if (trackBearingTurfDeg == null) return 0
-    // MapLibre: degrees counterclockwise from north; Turf bearing is clockwise.
-    return -trackBearingTurfDeg
+    // Turf: ° clockwise from north. MapLibre: ° counterclockwise from north.
+    // Align track tangent with viewport bottom (not top): heading-up uses -θ; bottom is +180°.
+    const b = 180 - trackBearingTurfDeg
+    return ((b + 540) % 360) - 180
   }, [compassMode, trackBearingTurfDeg])
 
   const loadTracks = useCallback(async () => {
@@ -213,8 +219,32 @@ function FlightPage() {
           >
             Load tracks
           </button>
+          {isDev && (
+            <button
+              type="button"
+              className="rounded-lg border border-amber-700/80 bg-amber-950/50 px-3 py-2 text-amber-100/90 text-sm"
+              onClick={() => setShowTracksJson((v) => !v)}
+              title={lastTracksPayload == null ? 'Load tracks first' : undefined}
+            >
+              {showTracksJson ? 'Hide' : 'Show'} tracks JSON
+            </button>
+          )}
         </div>
       </div>
+
+      {isDev && showTracksJson && (
+        <div className="mb-3 max-w-3xl">
+          {lastTracksPayload == null ? (
+            <p className="text-slate-500 m-0 text-sm">
+              No track payload yet — use Load tracks, or open a flight saved for offline.
+            </p>
+          ) : (
+            <pre className="max-h-[min(50vh,360px)] overflow-auto rounded-lg border border-slate-700 bg-slate-950/90 p-3 text-xs text-slate-200 tabular-nums">
+              {stringifyTracksDebug(lastTracksPayload)}
+            </pre>
+          )}
+        </div>
+      )}
 
       {msg && <p className="mb-2 text-amber-200">{msg}</p>}
 
@@ -397,4 +427,16 @@ function formatElapsedHms(ms: number) {
     return `${h}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`
   }
   return `${m}:${String(sec).padStart(2, '0')}`
+}
+
+function stringifyTracksDebug(v: unknown): string {
+  try {
+    return JSON.stringify(
+      v,
+      (_, x) => (typeof x === 'bigint' ? x.toString() : x),
+      2,
+    )
+  } catch {
+    return String(v)
+  }
 }

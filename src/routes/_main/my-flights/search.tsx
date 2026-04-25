@@ -86,16 +86,11 @@ function hasFlightInfo(hit: SearchHit): boolean {
   return Boolean(hit.originIata && hit.destIata && dep)
 }
 
-function todayUtcIso() {
-  const d = new Date()
-  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`
-}
-
 function FlightSearchPage() {
   const session = authClient.useSession()
   const navigate = useNavigate()
   const urlSearch = Route.useSearch()
-  const [date, setDate] = useState(() => urlSearch.date ?? todayUtcIso())
+  const [date, setDate] = useState(() => urlSearch.date ?? '')
   const [flightNumber, setFlightNumber] = useState(() => urlSearch.fn ?? '')
   const [originIata, setOriginIata] = useState(() => urlSearch.from ?? '')
   const [destIata, setDestIata] = useState(() => urlSearch.to ?? '')
@@ -113,10 +108,10 @@ function FlightSearchPage() {
       originIata?: string
       destIata?: string
     }) => {
-      const dateVal = overrides?.date ?? date
+      const dateVal = (overrides?.date ?? date).trim()
       const fn = (overrides?.flightNumber ?? flightNumber).trim().toUpperCase()
-      if (!fn || !dateVal) {
-        setError('Enter a flight number and date.')
+      if (!fn) {
+        setError('Enter a flight number.')
         return
       }
       setError(null)
@@ -125,7 +120,7 @@ function FlightSearchPage() {
       try {
         const u = new URL('/api/flight-schedule', window.location.origin)
         u.searchParams.set('flightNumber', fn)
-        u.searchParams.set('date', dateVal)
+        if (dateVal) u.searchParams.set('date', dateVal)
         const r = await fetch(u)
         const text = await r.text()
         if (!r.ok) {
@@ -148,7 +143,11 @@ function FlightSearchPage() {
           if (d && s.arrival.airport.toUpperCase() !== d) return false
           return true
         })
-        setResults(filtered.map((s) => scheduleRowToSearchHit(s, dateVal)))
+        setResults(
+          filtered.map((s) =>
+            scheduleRowToSearchHit(s, s.departure.time.slice(0, 10)),
+          ),
+        )
       } catch (e) {
         setError(e instanceof Error ? e.message : 'Search failed')
       } finally {
@@ -160,20 +159,21 @@ function FlightSearchPage() {
 
   const signInReturnPath = useCallback(() => {
     const sp = new URLSearchParams()
-    sp.set('date', date)
+    const dateParam = date.trim()
+    if (dateParam) sp.set('date', dateParam)
     const fn = flightNumber.trim().toUpperCase().replace(/\s+/g, '')
     if (fn) sp.set('fn', fn)
     const o = originIata.trim().toUpperCase()
     if (o) sp.set('from', o)
-    const d = destIata.trim().toUpperCase()
-    if (d) sp.set('to', d)
+    const dest = destIata.trim().toUpperCase()
+    if (dest) sp.set('to', dest)
     return `/my-flights/search?${sp.toString()}`
   }, [date, flightNumber, originIata, destIata])
 
   useEffect(() => {
-    const d = urlSearch.date
     const fn = urlSearch.fn?.trim()
-    if (!d || !fn) return
+    if (!fn) return
+    const d = urlSearch.date ?? ''
     const key = `${d}|${fn}|${urlSearch.from ?? ''}|${urlSearch.to ?? ''}`
     if (lastBootstrapKey.current === key) return
     lastBootstrapKey.current = key
@@ -262,13 +262,14 @@ function FlightSearchPage() {
         Add flight
       </h1>
       <p className="text-(--muted) mb-6 text-sm">
-        Look up a timetable leg (AirLabs) for a given day, then save it to your
-        list. Optional IATA origin and destination filter results to that route.
+        Look up timetable legs (AirLabs). Leave the date empty to list upcoming
+        days from schedules and routes. Optional IATA origin and destination
+        narrow to one route.
       </p>
 
       <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2">
         <label className="flex flex-col gap-1.5 text-sm font-medium text-(--sea-ink)">
-          Date (UTC)
+          Date (UTC, optional)
           <input
             type="date"
             value={date}
@@ -341,8 +342,9 @@ function FlightSearchPage() {
       {results && results.length === 0 && !error && (
         <div className="text-[var(--muted)] space-y-2 text-sm">
           <p className="m-0">
-            No schedule rows for that day and number. Try another date, clear
-            the route filter, or check the flight number.
+            No schedule rows for that search. Try another date (or clear it for
+            all upcoming days), clear the route filter, or check the flight
+            number.
           </p>
         </div>
       )}

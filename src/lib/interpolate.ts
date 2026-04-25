@@ -8,7 +8,12 @@ function lineStringValidCoords(coords: Position[]): [number, number][] {
     if (!c || c.length < 2) continue
     const a = c[0]
     const b = c[1]
-    if (typeof a === 'number' && typeof b === 'number' && Number.isFinite(a) && Number.isFinite(b)) {
+    if (
+      typeof a === 'number' &&
+      typeof b === 'number' &&
+      Number.isFinite(a) &&
+      Number.isFinite(b)
+    ) {
       out.push([a, b])
     }
   }
@@ -72,8 +77,8 @@ export function bearingAlongLine(
     d1 = Math.min(L, t * L + eps)
   }
   if (d1 - d0 < 1e-9) {
-    const a = coords[0] as [number, number]
-    const b = coords[1] as [number, number]
+    const a = coords[0]
+    const b = coords[1]
     return bearing(a, b)
   }
   const p0 = along(ls, d0, { units: 'kilometers' })
@@ -82,11 +87,7 @@ export function bearingAlongLine(
 }
 
 /** Progress 0..1 from timestamps (ms). */
-export function timeProgress(
-  tMs: number,
-  start: number,
-  end: number,
-) {
+export function timeProgress(tMs: number, start: number, end: number) {
   if (end <= start) return 0
   return Math.min(1, Math.max(0, (tMs - start) / (end - start)))
 }

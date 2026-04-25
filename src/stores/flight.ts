@@ -14,6 +14,8 @@ export type FlightState = {
   line: Feature<LineString> | null
   /** Last tracks payload for IndexedDB (full FeatureCollection JSON) */
   lastGeojson: unknown | null
+  /** Full last `/tracks` response or offline pack snapshot (dev inspect). */
+  lastTracksPayload: unknown | null
   bbox: [number, number, number, number] | null
   takeoff: Date
   takeoffOffsetMin: number
@@ -59,6 +61,7 @@ export const useFlightStore = create<FlightState>((set, get) => ({
   travelDate: '',
   line: null,
   lastGeojson: null,
+  lastTracksPayload: null,
   bbox: null,
   takeoff: new Date(),
   takeoffOffsetMin: 0,
@@ -82,6 +85,7 @@ export const useFlightStore = create<FlightState>((set, get) => ({
     set({
       line,
       lastGeojson: fc,
+      lastTracksPayload: data,
       bbox: isBbox(mb) ? mb : null,
       takeoff: t0 != null ? new Date(t0) : new Date(),
     })
@@ -92,7 +96,7 @@ export const useFlightStore = create<FlightState>((set, get) => ({
   setUseOffline: (o) => set({ useOffline: o }),
   resetTileProgress: () => set({ tileProgress: null }),
   clearTrackData: () =>
-    set({ line: null, lastGeojson: null, bbox: null }),
+    set({ line: null, lastGeojson: null, lastTracksPayload: null, bbox: null }),
   loadPackFromIdb: async () => {
     const { flightNumber, travelDate } = get()
     if (!flightNumber || !travelDate) {
@@ -111,6 +115,7 @@ export const useFlightStore = create<FlightState>((set, get) => ({
       set({
         line,
         lastGeojson: p.geojson,
+        lastTracksPayload: { _source: 'indexeddb' as const, geojson: p.geojson, bbox: p.bbox },
         bbox: p.bbox,
         takeoff: t0 != null ? new Date(t0) : new Date(),
         useOffline: true,

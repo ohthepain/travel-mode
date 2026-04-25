@@ -43,9 +43,9 @@ export type FlightMapProps = {
   mapSessionKey: string
   /** Seed for offline user anchor; not driven by live position updates. */
   initialOfflineCenter: [number, number]
-  /** MapLibre rotation in degrees (counterclockwise from north; track-up mode uses negated Turf track bearing). */
+  /** MapLibre bearing in degrees (CCW from north). Compass off: rotated so track direction points toward viewport bottom. */
   mapBearing: number
-  /** When true, north is at the top; when false, map follows track direction. */
+  /** When true, north is at the top; when false, track direction is toward the bottom of the map. */
   compassMode: boolean
   onCompassModeChange: (next: boolean) => void
 }
@@ -337,8 +337,8 @@ export function FlightMap({
           aria-pressed={compassMode}
           title={
             compassMode
-              ? 'North at top of screen (on). Click for heading-up: top points forward along track.'
-              : 'Heading up: top of screen is along-track. Click for north at top.'
+              ? 'North at top of screen (on). Click for track-down: direction of flight toward bottom of map.'
+              : 'Track down: direction of flight toward bottom of map. Click for north at top.'
           }
         >
           <Compass className="size-5 shrink-0" aria-hidden />

@@ -233,31 +233,48 @@ function routeToFlightOnDate(
   }
 }
 
-function nextRunYmdForDays(dayKeys: string[], from: Date): string | null {
-  if (dayKeys.length === 0) {
-    return from.toISOString().slice(0, 10)
-  }
-  const set = new Set(dayKeys.map((d) => d.toLowerCase()))
-  for (let i = 0; i < 14; i++) {
-    const t = new Date(from.getTime() + i * 24 * 3600 * 1000)
-    const s = t.toISOString().slice(0, 10)
-    const wk = DAY[t.getUTCDay()] ?? ''
-    if (set.has(wk)) return s
-  }
-  return null
+const ROUTE_FILL_DAYS_AHEAD = 45
+
+function departureDayKey(s: FlightSchedule): string {
+  return s.departure.time.slice(0, 10)
 }
 
-function routeToNextOccurrence(
-  r: AirlabsRouteRow,
+/** Prefer operational schedule rows over timetable-derived ones for the same leg/day. */
+function mergeSchedulesWithRouteCalendar(
+  routeRows: AirlabsRouteRow[],
+  fromSched: FlightSchedule[],
+  flightIata: string,
   fetchedAt: string,
   source: FlightSchedule['source'],
-  flightIata: string,
-): FlightSchedule | null {
-  const days = (r.days) ?? []
+): FlightSchedule[] {
+  const keys = new Set(
+    fromSched.map(
+      (s) =>
+        `${s.departure.airport}|${s.arrival.airport}|${departureDayKey(s)}`,
+    ),
+  )
+  const added: FlightSchedule[] = []
   const ref = new Date()
-  const y0 = nextRunYmdForDays(days, ref)
-  if (!y0) return null
-  return routeToFlightOnDate(r, y0, fetchedAt, source, flightIata)
+  const refDayUtc = Date.UTC(
+    ref.getUTCFullYear(),
+    ref.getUTCMonth(),
+    ref.getUTCDate(),
+  )
+  for (let i = 0; i < ROUTE_FILL_DAYS_AHEAD; i++) {
+    const ymd = new Date(refDayUtc + i * 86400000).toISOString().slice(0, 10)
+    for (const r of routeRows) {
+      const fs = routeToFlightOnDate(r, ymd, fetchedAt, source, flightIata)
+      if (!fs) continue
+      const k = `${fs.departure.airport}|${fs.arrival.airport}|${departureDayKey(fs)}`
+      if (!keys.has(k)) {
+        keys.add(k)
+        added.push(fs)
+      }
+    }
+  }
+  return [...fromSched, ...added].sort((a, b) =>
+    a.departure.time.localeCompare(b.departure.time),
+  )
 }
 
 function filterScheduleRowsByDate(
@@ -309,9 +326,13 @@ function unwrapCachePayload(
     const at = row.fetchedAt.toISOString()
     return {
       ok: true,
-      out: nd.routes
-        .map((r) => routeToNextOccurrence(r, at, 'cache', flightIata))
-        .filter((x): x is FlightSchedule => x != null),
+      out: mergeSchedulesWithRouteCalendar(
+        nd.routes,
+        [],
+        flightIata,
+        at,
+        'cache',
+      ),
     }
   }
   return { ok: false }
@@ -347,34 +368,24 @@ export async function getFlightSchedules(
 
   const fetchedAt = new Date().toISOString()
   let fromSched: FlightSchedule[] = []
-  if (ymd) {
-    try {
-      const sched = await fetchSchedulesByFlightIata(flightIata)
-      const filtered = filterScheduleRowsByDate(sched, ymd)
-      fromSched = filtered
-        .map((r) => scheduleRowToFS(r, fetchedAt, 'airlabs', flightIata))
-        .filter((x): x is FlightSchedule => x != null)
-    } catch {
-      /* routes only */
-    }
+  try {
+    const sched = await fetchSchedulesByFlightIata(flightIata)
+    const rows = ymd ? filterScheduleRowsByDate(sched, ymd) : sched
+    fromSched = rows
+      .map((r) => scheduleRowToFS(r, fetchedAt, 'airlabs', flightIata))
+      .filter((x): x is FlightSchedule => x != null)
+  } catch {
+    /* routes only */
   }
 
   const routeRows = await fetchRoutesByAirlineAndFlight(airlineIata, flightNumber)
-  let fromRoutes: FlightSchedule[] = []
+  let merged: FlightSchedule[] = []
   if (ymd) {
-    fromRoutes = routeRows
+    const fromRoutes = routeRows
       .map((r) =>
         routeToFlightOnDate(r, ymd, fetchedAt, 'airlabs', flightIata),
       )
       .filter((x): x is FlightSchedule => x != null)
-  } else {
-    fromRoutes = routeRows
-      .map((r) => routeToNextOccurrence(r, fetchedAt, 'airlabs', flightIata))
-      .filter((x): x is FlightSchedule => x != null)
-  }
-
-  let merged: FlightSchedule[] = []
-  if (ymd) {
     if (fromSched.length > 0) {
       const keys = new Set(
         fromSched.map(
@@ -391,7 +402,13 @@ export async function getFlightSchedules(
       merged = fromRoutes
     }
   } else {
-    merged = fromRoutes
+    merged = mergeSchedulesWithRouteCalendar(
+      routeRows,
+      fromSched,
+      flightIata,
+      fetchedAt,
+      'airlabs',
+    )
   }
 
   if (ymd) {
