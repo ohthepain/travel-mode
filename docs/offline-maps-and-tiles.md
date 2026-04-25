@@ -1,6 +1,6 @@
 # Offline maps: route, tiles, storage, and display
 
-This document describes how Travelmode loads a flight **track (route)**, **downloads and caches** map tiles, **persists** them in the browser, **renders** the map, and **constrains** the view in offline mode so the basemap does not show empty **gray** placeholders.
+This document describes how Travelmode loads a flight **track (route)**, **downloads and caches** map tiles plus geo feature tiles, **persists** them in the browser, **renders** the map, and **constrains** the view in offline mode so the basemap does not show empty **gray** placeholders.
 
 ## 1. Downloading the route
 
@@ -40,6 +40,12 @@ Database name: `travelmode-tiles` (see `src/lib/tile-idb.ts`).
 | `packs` | `"{FLIGHT_NUMBER}:{travelDate}"` | **Flight pack**: saved GeoJSON (`FeatureCollection`) and the **same bbox** used for tile coverage, for offline route + consistent bounds. |
 
 `saveFlightPack` runs at the end of a successful `downloadTiles`, after all tiles in range are stored. A **pack** ties a flight + date to the route and bbox so `loadFlightPack` can restore the line and offline mode on return visits.
+
+Geo feature tiles are stored in the same IndexedDB database under one-degree
+lon/lat cells. During **Save for offline**, cells sampled along the flight path
+download `highres.json.gz`; the rest of the saved map bbox downloads
+`lowres.json.gz`. Missing geo feature files are ignored so sparse S3 coverage
+does not block saving the map.
 
 ## 4. Displaying: online vs offline
 

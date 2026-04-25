@@ -1,14 +1,34 @@
 import type { DBSchema, IDBPDatabase } from 'idb'
 import { openDB } from 'idb'
+import {
+  degreeTileForLonLat,
+  isGeoFeatureCollection,
+  mergeGeoFeatureCollections,
+  type DegreeTile,
+  type GeoFeatureCollection,
+  type GeoFeatureResolution,
+} from './geo-feature-tiles'
 
 const DB = 'travelmode-tiles'
-const VER = 1
+const VER = 2
 const TILE_STORE = 'tiles'
 const PACK_STORE = 'packs'
+const GEO_FEATURE_STORE = 'geoFeatureTiles'
 
 type TileKey = { z: number; x: number; y: number }
 
 type TileRec = { id: string; z: number; x: number; y: number; data: ArrayBuffer; storedAt: number }
+
+type GeoFeatureTileRec = {
+  id: string
+  resolution: GeoFeatureResolution
+  latTile: number
+  lonTile: number
+  tileId: string
+  prefix: string
+  geojson: GeoFeatureCollection
+  storedAt: number
+}
 
 export type PackRec = {
   id: string
@@ -22,6 +42,7 @@ export type PackRec = {
 interface TravelmodeDB extends DBSchema {
   [TILE_STORE]: { key: string; value: TileRec }
   [PACK_STORE]: { key: string; value: PackRec }
+  [GEO_FEATURE_STORE]: { key: string; value: GeoFeatureTileRec }
 }
 
 function tkey(t: TileKey) {
@@ -29,6 +50,9 @@ function tkey(t: TileKey) {
 }
 function packId(flightNumber: string, travelDate: string) {
   return `${flightNumber.toUpperCase()}:${travelDate}`
+}
+function geoFeatureTileId(resolution: GeoFeatureResolution, tile: Pick<DegreeTile, 'tileId'>) {
+  return `${resolution}:${tile.tileId}`
 }
 
 let dbp: Promise<IDBPDatabase<TravelmodeDB>> | null = null
@@ -41,6 +65,9 @@ function getDb() {
       }
       if (!db.objectStoreNames.contains(PACK_STORE)) {
         db.createObjectStore(PACK_STORE, { keyPath: 'id' })
+      }
+      if (!db.objectStoreNames.contains(GEO_FEATURE_STORE)) {
+        db.createObjectStore(GEO_FEATURE_STORE, { keyPath: 'id' })
       }
     },
   })
@@ -58,6 +85,56 @@ export async function getTileData(t: TileKey): Promise<ArrayBuffer | undefined> 
   const db = await getDb()
   const r = await db.get(TILE_STORE, tkey(t))
   return r?.data
+}
+
+export async function putGeoFeatureTile(
+  tile: DegreeTile,
+  resolution: GeoFeatureResolution,
+  geojson: GeoFeatureCollection,
+) {
+  const db = await getDb()
+  const rec: GeoFeatureTileRec = {
+    id: geoFeatureTileId(resolution, tile),
+    resolution,
+    latTile: tile.latTile,
+    lonTile: tile.lonTile,
+    tileId: tile.tileId,
+    prefix: tile.prefix,
+    geojson,
+    storedAt: Date.now(),
+  }
+  await db.put(GEO_FEATURE_STORE, rec)
+}
+
+export async function getGeoFeatureTile(
+  tile: DegreeTile,
+  resolution: GeoFeatureResolution,
+): Promise<GeoFeatureCollection | undefined> {
+  const db = await getDb()
+  const rec = await db.get(GEO_FEATURE_STORE, geoFeatureTileId(resolution, tile))
+  return rec?.geojson
+}
+
+export async function getGeoFeatureTileForLonLat(
+  lon: number,
+  lat: number,
+  resolution: GeoFeatureResolution,
+): Promise<GeoFeatureCollection | undefined> {
+  return getGeoFeatureTile(degreeTileForLonLat(lon, lat), resolution)
+}
+
+export async function getGeoFeaturesForTiles(
+  tiles: { tile: DegreeTile; resolution: GeoFeatureResolution }[],
+): Promise<GeoFeatureCollection> {
+  const db = await getDb()
+  const collections: GeoFeatureCollection[] = []
+
+  for (const { tile, resolution } of tiles) {
+    const rec = await db.get(GEO_FEATURE_STORE, geoFeatureTileId(resolution, tile))
+    if (rec && isGeoFeatureCollection(rec.geojson)) collections.push(rec.geojson)
+  }
+
+  return mergeGeoFeatureCollections(collections)
 }
 
 export async function saveFlightPack(

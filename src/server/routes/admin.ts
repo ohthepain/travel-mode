@@ -2,6 +2,9 @@ import { Hono } from 'hono'
 import type { Prisma } from '../../../generated/prisma/client'
 import { prisma } from '../db'
 import { getBoss } from '../jobs/boss'
+import { BUILD_GEO_FEATURES_QUEUE } from '../jobs/geo-features'
+import type { BuildGeoFeaturesPayload } from '../jobs/geo-features'
+import { enqueueEuropeGeoFeatures } from '../jobs/queue'
 import type { SyncFlightPayload } from '../jobs/sync-flight'
 
 export const adminRoutes = new Hono()
@@ -9,6 +12,10 @@ export const adminRoutes = new Hono()
 const MAX_JOBS = 500
 const MAX_TRACKS = 200
 const OUTPUT_MESSAGE_MAX = 280
+const SUPPORTED_JOB_QUEUES = ['sync_flight', BUILD_GEO_FEATURES_QUEUE] as const
+
+type SupportedJobQueue = (typeof SUPPORTED_JOB_QUEUES)[number]
+type AdminJobPayload = SyncFlightPayload | BuildGeoFeaturesPayload
 
 function parseYmd(s: string | undefined): Date | null {
   if (!s) return null
@@ -23,7 +30,8 @@ function truncateMessage(s: string, max: number): string {
 }
 
 /** Human-readable line for pg-boss job `output` (errors use serialize-error shape). */
-function shortJobOutputMessage(output: object): string | null {
+function shortJobOutputMessage(output: object | null): string | null {
+  if (output == null) return null
   if (typeof output !== 'object' || Array.isArray(output)) return null
   const o = output as Record<string, unknown>
   const top = o.message
@@ -63,7 +71,10 @@ adminRoutes.get('/tracks', async (c) => {
 
   const where: Prisma.TrackWhereInput = {}
   if (flightNumber) {
-    where.flightNumber = { contains: flightNumber, mode: 'insensitive' as const }
+    where.flightNumber = {
+      contains: flightNumber,
+      mode: 'insensitive' as const,
+    }
   }
   if (dateFrom || dateTo) {
     where.travelDate = {}
@@ -73,7 +84,11 @@ adminRoutes.get('/tracks', async (c) => {
 
   const rows = await prisma.track.findMany({
     where,
-    orderBy: [{ travelDate: 'desc' }, { flightNumber: 'asc' }, { fetchedAt: 'desc' }],
+    orderBy: [
+      { travelDate: 'desc' },
+      { flightNumber: 'asc' },
+      { fetchedAt: 'desc' },
+    ],
     take: MAX_TRACKS,
     select: {
       id: true,
@@ -115,10 +130,15 @@ adminRoutes.get('/tracks', async (c) => {
 
 adminRoutes.get('/pgboss/jobs', async (c) => {
   const boss = await getBoss()
-  const queueName = 'sync_flight'
+  const requestedQueue = c.req.query('queue')?.trim()
+  const queueName: SupportedJobQueue = SUPPORTED_JOB_QUEUES.includes(
+    requestedQueue as SupportedJobQueue,
+  )
+    ? (requestedQueue as SupportedJobQueue)
+    : 'sync_flight'
   const [stats, jobs] = await Promise.all([
     boss.getQueueStats(queueName),
-    boss.findJobs<SyncFlightPayload>(queueName, {}),
+    boss.findJobs<AdminJobPayload>(queueName, {}),
   ])
   const sorted = [...jobs].sort(
     (a, b) => new Date(b.createdOn).getTime() - new Date(a.createdOn).getTime(),
@@ -126,6 +146,7 @@ adminRoutes.get('/pgboss/jobs', async (c) => {
   const slice = sorted.slice(0, MAX_JOBS)
   return c.json({
     queue: queueName,
+    queues: SUPPORTED_JOB_QUEUES,
     stats: {
       name: stats.name,
       policy: stats.policy,
@@ -156,4 +177,15 @@ adminRoutes.get('/pgboss/jobs', async (c) => {
       outputMessage: shortJobOutputMessage(j.output),
     })),
   })
+})
+
+adminRoutes.post('/pgboss/geo-features/europe', async (c) => {
+  const body = await c.req.json().catch(() => ({}))
+  const dryRun =
+    typeof body === 'object' &&
+    body !== null &&
+    !Array.isArray(body) &&
+    (body as Record<string, unknown>).dryRun === true
+  const id = await enqueueEuropeGeoFeatures({ dryRun })
+  return c.json({ ok: true, jobId: id, queued: true, dryRun }, 202)
 })

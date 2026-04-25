@@ -9,6 +9,7 @@ import {
   flightScheduleRoutes,
 } from './routes/airlabs'
 import { flightRoutes } from './routes/flights'
+import { geoFeatureRoutes } from './routes/geo-features'
 import { mapTileRoutes } from './routes/map-tiles'
 
 const corsOrigins = getTrustedOrigins()
@@ -37,4 +38,5 @@ app.route('/airports', airportRoutes)
 app.route('/airlines', airlineRoutes)
 app.route('/cities', cityRoutes)
 app.route('/map-tiles', mapTileRoutes)
+app.route('/geo-features', geoFeatureRoutes)
 app.route('/admin', adminRoutes)

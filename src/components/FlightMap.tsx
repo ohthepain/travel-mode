@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import maplibregl from 'maplibre-gl'
-import type { Feature, LineString } from 'geojson'
+import type { Feature, FeatureCollection, Geometry, LineString } from 'geojson'
 import { getTileData } from '../lib/tile-idb'
 import { cn } from '../lib/cn'
 import {
@@ -11,7 +11,13 @@ import {
 } from '../lib/map-bbox-clamp'
 import { normalizeBearing360, wrapDegrees180 } from '../lib/angle'
 import { appMapTileUrlTemplate } from '../lib/tiles'
+import { pickGeoLabelFeaturesForMapView } from '../lib/geo-label-pick'
 import 'maplibre-gl/dist/maplibre-gl.css'
+
+/** Single source: circles and labels use the same viewport grid-picked subset. */
+const GEO_SHOWN = 'geo-shown'
+const GEO_DARK = '#3f3f46'
+const GEO_STROKE = '#ffffff'
 
 const OFF = 'offtm'
 
@@ -72,6 +78,7 @@ export type FlightMapProps = {
   followMode: boolean
   /** Turf-style track bearing (° clockwise from north); used for the plane icon in north-up mode only. */
   planeTrackBearingDeg: number | null
+  geoFeatures: FeatureCollection<Geometry> | null
   onFollowModeChange: (next: boolean) => void
 }
 
@@ -102,6 +109,81 @@ function addOrUpdateRoute(m: maplibregl.Map, line: Feature<LineString> | null) {
   }
 }
 
+function addOrUpdateGeoFeatures(
+  m: maplibregl.Map,
+  geoFeatures: FeatureCollection<Geometry> | null,
+) {
+  const shown = m.getSource(GEO_SHOWN)
+  if (!shown) {
+    if (!geoFeatures) return
+    const picked = pickGeoLabelFeaturesForMapView(m, geoFeatures)
+    m.addSource(GEO_SHOWN, { type: 'geojson', data: picked as GeoJSON.GeoJSON })
+    m.addLayer({
+      id: 'geo-feature-points',
+      type: 'circle',
+      source: GEO_SHOWN,
+      paint: {
+        'circle-color': GEO_DARK,
+        'circle-opacity': 0.92,
+        'circle-stroke-color': GEO_STROKE,
+        'circle-stroke-width': 1.35,
+        'circle-radius': [
+          'interpolate',
+          ['linear'],
+          ['coalesce', ['get', 'importance'], 25],
+          25,
+          2.5,
+          70,
+          4,
+          100,
+          6,
+        ],
+      },
+    })
+    m.addLayer({
+      id: 'geo-feature-labels',
+      type: 'symbol',
+      source: GEO_SHOWN,
+      minzoom: 4,
+      layout: {
+        'text-field': ['get', 'name'],
+        'text-font': ['Noto Sans Regular'],
+        'text-size': [
+          'interpolate',
+          ['linear'],
+          ['coalesce', ['get', 'importance'], 25],
+          25,
+          11,
+          70,
+          12,
+          100,
+          14,
+        ],
+        'text-offset': [0.75, 0],
+        'text-anchor': 'left',
+        'text-optional': true,
+        'text-padding': 2,
+      },
+      paint: {
+        'text-color': GEO_DARK,
+        'text-halo-color': GEO_STROKE,
+        'text-halo-width': 1.35,
+        'text-halo-blur': 0.4,
+      },
+    })
+    return
+  }
+
+  if (geoFeatures) {
+    const picked = pickGeoLabelFeaturesForMapView(m, geoFeatures)
+    ;(shown as maplibregl.GeoJSONSource).setData(picked as GeoJSON.GeoJSON)
+  } else {
+    if (m.getLayer('geo-feature-labels')) m.removeLayer('geo-feature-labels')
+    if (m.getLayer('geo-feature-points')) m.removeLayer('geo-feature-points')
+    m.removeSource(GEO_SHOWN)
+  }
+}
+
 export function FlightMap({
   line,
   useOfflineRaster,
@@ -114,6 +196,7 @@ export function FlightMap({
   mapBearing,
   followMode,
   planeTrackBearingDeg,
+  geoFeatures,
   onFollowModeChange,
 }: FlightMapProps) {
   const el = useRef<HTMLDivElement | null>(null)
@@ -128,6 +211,8 @@ export function FlightMap({
   /** Latest bearing for offline bbox clamp (avoid reattaching effect on every playback tick). */
   const mapBearingRef = useRef(mapBearing)
   mapBearingRef.current = mapBearing
+  const geoFeaturesRef = useRef(geoFeatures)
+  geoFeaturesRef.current = geoFeatures
 
   useEffect(() => {
     userOverrideViewRef.current = false
@@ -168,6 +253,7 @@ export function FlightMap({
       container: el.current,
       style: {
         version: 8,
+        glyphs: 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf',
         sources:
           tiles.length > 0
             ? {
@@ -217,6 +303,39 @@ export function FlightMap({
     if (!m || !mapReady) return
     addOrUpdateRoute(m, line)
   }, [line, mapReady])
+
+  useEffect(() => {
+    const m = map.current
+    if (!m || !mapReady) return
+    addOrUpdateGeoFeatures(m, geoFeatures)
+  }, [geoFeatures, mapReady])
+
+  useEffect(() => {
+    const m = map.current
+    if (!m || !mapReady) return
+    const refreshLabelSubset = () => {
+      const src = m.getSource(GEO_SHOWN) as maplibregl.GeoJSONSource | undefined
+      if (!src) return
+      const fc = geoFeaturesRef.current
+      if (!fc) {
+        src.setData({ type: 'FeatureCollection', features: [] })
+        return
+      }
+      src.setData(pickGeoLabelFeaturesForMapView(m, fc) as GeoJSON.GeoJSON)
+    }
+    m.on('moveend', refreshLabelSubset)
+    m.on('zoomend', refreshLabelSubset)
+    m.on('rotateend', refreshLabelSubset)
+    m.on('pitchend', refreshLabelSubset)
+    m.on('resize', refreshLabelSubset)
+    return () => {
+      m.off('moveend', refreshLabelSubset)
+      m.off('zoomend', refreshLabelSubset)
+      m.off('rotateend', refreshLabelSubset)
+      m.off('pitchend', refreshLabelSubset)
+      m.off('resize', refreshLabelSubset)
+    }
+  }, [mapReady])
 
   const [centerLng, centerLat] = center
   const [planeLng, planeLat] = plane ?? [NaN, NaN]

@@ -1,9 +1,24 @@
 import { create } from 'zustand'
 import type { Feature, FeatureCollection, LineString } from 'geojson'
 import { pointAlong, addMinutes, bearingAlongLine } from '../lib/interpolate'
-import { loadFlightPack, putTile, saveFlightPack } from '../lib/tile-idb'
+import {
+  getGeoFeaturesForTiles,
+  loadFlightPack,
+  putGeoFeatureTile,
+  putTile,
+  saveFlightPack,
+} from '../lib/tile-idb'
 import { appMapTileUrlTemplate, countTilesBbox, tileRangeForBbox } from '../lib/tiles'
 import { effectiveFlightMapBbox } from '../lib/route-bbox-expand'
+import {
+  appGeoFeatureTileUrl,
+  degreeTilesForBbox,
+  degreeTilesForLineString,
+  isGeoFeatureCollection,
+  type DegreeTile,
+  type GeoFeatureCollection,
+  type GeoFeatureResolution,
+} from '../lib/geo-feature-tiles'
 
 const Z_MIN = 3
 const Z_MAX = 8
@@ -16,6 +31,7 @@ export type FlightState = {
   lastGeojson: unknown | null
   /** Full last `/tracks` response or offline pack snapshot (dev inspect). */
   lastTracksPayload: unknown | null
+  geoFeatures: GeoFeatureCollection | null
   bbox: [number, number, number, number] | null
   takeoff: Date
   takeoffOffsetMin: number
@@ -36,6 +52,7 @@ export type FlightState = {
   /** Clear line/bbox from a previous flight when the route (flight+date) changes; IDB can refill. */
   clearTrackData: () => void
   downloadTiles: () => Promise<void>
+  loadGeoFeaturesFromIdb: () => Promise<void>
   estimatedPosition: (now: Date) => [number, number] | null
   /** Progress 0..1 along the track for elapsed ms since departure anchor (same basis as `estimatedPosition`). */
   positionAtElapsedMs: (elapsedMs: number) => [number, number] | null
@@ -62,6 +79,7 @@ export const useFlightStore = create<FlightState>((set, get) => ({
   line: null,
   lastGeojson: null,
   lastTracksPayload: null,
+  geoFeatures: null,
   bbox: null,
   takeoff: new Date(),
   takeoffOffsetMin: 0,
@@ -86,6 +104,7 @@ export const useFlightStore = create<FlightState>((set, get) => ({
       line,
       lastGeojson: fc,
       lastTracksPayload: data,
+      geoFeatures: null,
       bbox: isBbox(mb) ? mb : null,
       takeoff: t0 != null ? new Date(t0) : new Date(),
     })
@@ -96,7 +115,7 @@ export const useFlightStore = create<FlightState>((set, get) => ({
   setUseOffline: (o) => set({ useOffline: o }),
   resetTileProgress: () => set({ tileProgress: null }),
   clearTrackData: () =>
-    set({ line: null, lastGeojson: null, lastTracksPayload: null, bbox: null }),
+    set({ line: null, lastGeojson: null, lastTracksPayload: null, geoFeatures: null, bbox: null }),
   loadPackFromIdb: async () => {
     const { flightNumber, travelDate } = get()
     if (!flightNumber || !travelDate) {
@@ -116,6 +135,7 @@ export const useFlightStore = create<FlightState>((set, get) => ({
         line,
         lastGeojson: p.geojson,
         lastTracksPayload: { _source: 'indexeddb' as const, geojson: p.geojson, bbox: p.bbox },
+        geoFeatures: null,
         bbox: p.bbox,
         takeoff: t0 != null ? new Date(t0) : new Date(),
         useOffline: true,
@@ -123,6 +143,17 @@ export const useFlightStore = create<FlightState>((set, get) => ({
     } else {
       set({ useOffline: false })
     }
+  },
+  loadGeoFeaturesFromIdb: async () => {
+    const { line, bbox } = get()
+    const b = effectiveFlightMapBbox(line, bbox)
+    if (!b) {
+      set({ geoFeatures: null })
+      return
+    }
+    const plan = geoFeatureTilePlan(line, b)
+    const geoFeatures = await getGeoFeaturesForTiles(plan)
+    set({ geoFeatures })
   },
   downloadTiles: async () => {
     const { line, lastGeojson, flightNumber, travelDate, bbox } = get()
@@ -133,7 +164,8 @@ export const useFlightStore = create<FlightState>((set, get) => ({
       )
     }
     const [w, s, e, n] = b
-    const total = countTilesBbox(Z_MIN, Z_MAX, w, s, e, n)
+    const geoPlan = geoFeatureTilePlan(line, b)
+    const total = countTilesBbox(Z_MIN, Z_MAX, w, s, e, n) + geoPlan.length
     set({ tileProgress: { done: 0, total } })
     try {
       const base = appMapTileUrlTemplate()
@@ -163,11 +195,28 @@ export const useFlightStore = create<FlightState>((set, get) => ({
           set({ tileProgress: { done, total } })
         }
       }
+      for (const { tile, resolution } of geoPlan) {
+        const res = await fetch(appGeoFeatureTileUrl(tile, resolution))
+        if (res.ok) {
+          const geojson = await res.json()
+          if (isGeoFeatureCollection(geojson)) {
+            await putGeoFeatureTile(tile, resolution, geojson)
+          }
+        } else if (res.status === 503) {
+          const body = await res.text()
+          throw new Error(body || 'Geo feature proxy: set S3_BUCKET_GEOJSON in .env and restart the dev server.')
+        } else if (res.status !== 404) {
+          console.warn('[geo-features] ignored failed tile', res.status, tile.prefix, resolution)
+        }
+        done++
+        set({ tileProgress: { done, total } })
+      }
       let fc: FeatureCollection = { type: 'FeatureCollection', features: line ? [line] : [] }
       if (isFeatureCollection(lastGeojson)) {
         fc = lastGeojson
       }
       await saveFlightPack(flightNumber, travelDate, { geojson: fc, bbox: b })
+      set({ geoFeatures: await getGeoFeaturesForTiles(geoPlan) })
       set({ useOffline: true })
     } finally {
       set({ tileProgress: null })
@@ -195,6 +244,19 @@ export const useFlightStore = create<FlightState>((set, get) => ({
     return get().positionAtElapsedMs(now.getTime() - start)
   },
 }))
+
+function geoFeatureTilePlan(
+  line: Feature<LineString> | null,
+  bbox: [number, number, number, number],
+): { tile: DegreeTile; resolution: GeoFeatureResolution }[] {
+  const highres = new Map(degreeTilesForLineString(line).map((tile) => [tile.tileId, tile]))
+  const all = degreeTilesForBbox(bbox)
+
+  return all.map((tile) => ({
+    tile,
+    resolution: highres.has(tile.tileId) ? 'highres' : 'lowres',
+  }))
+}
 
 function isBbox(
   v: unknown,

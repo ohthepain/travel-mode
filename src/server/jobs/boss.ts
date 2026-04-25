@@ -1,4 +1,8 @@
 import { PgBoss } from 'pg-boss'
+import {
+  BUILD_GEO_FEATURES_QUEUE,
+  handleBuildGeoFeaturesBatches,
+} from './geo-features'
 import { handleSyncFlightBatches } from './sync-flight'
 
 let boss: PgBoss | null = null
@@ -23,12 +27,26 @@ export async function getBoss(): Promise<PgBoss> {
     await b.start()
     if (!registered) {
       await b.createQueue('sync_flight')
+      await b.createQueue(BUILD_GEO_FEATURES_QUEUE)
       // pg-boss v10+: `work(name, options, handler)` — not (name, handler, options).
-      await b.work('sync_flight', {
-        localConcurrency: syncFlightLocalConcurrency(),
-        batchSize: 1,
-        pollingIntervalSeconds: 2,
-      }, handleSyncFlightBatches)
+      await b.work(
+        'sync_flight',
+        {
+          localConcurrency: syncFlightLocalConcurrency(),
+          batchSize: 1,
+          pollingIntervalSeconds: 2,
+        },
+        handleSyncFlightBatches,
+      )
+      await b.work(
+        BUILD_GEO_FEATURES_QUEUE,
+        {
+          localConcurrency: 1,
+          batchSize: 1,
+          pollingIntervalSeconds: 10,
+        },
+        handleBuildGeoFeaturesBatches,
+      )
       registered = true
     }
     boss = b

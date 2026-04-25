@@ -43,6 +43,8 @@ function FlightPage() {
   const c = useFlightStore((s) => s.correctionEN)
   const tileProgress = useFlightStore((s) => s.tileProgress)
   const downloadTiles = useFlightStore((s) => s.downloadTiles)
+  const loadGeoFeaturesFromIdb = useFlightStore((s) => s.loadGeoFeaturesFromIdb)
+  const geoFeatures = useFlightStore((s) => s.geoFeatures)
   const positionAtElapsedMs = useFlightStore((s) => s.positionAtElapsedMs)
   const mapMode = useFlightStore((s) => s.mapMode)
   const lastTracksPayload = useFlightStore((s) => s.lastTracksPayload)
@@ -125,6 +127,9 @@ function FlightPage() {
   /** API bbox ∪ line bounds, extended past track ends so maps/tiles reach the destination when ADS-B stops early. */
   const mapBbox = useMemo(() => effectiveFlightMapBbox(line, bbox), [line, bbox])
   const canSaveOffline = mapBbox != null
+  useEffect(() => {
+    void loadGeoFeaturesFromIdb()
+  }, [loadGeoFeaturesFromIdb, mapBbox?.[0], mapBbox?.[1], mapBbox?.[2], mapBbox?.[3], line])
   const initialOfflineCenter = useMemo((): [number, number] => {
     const c0 = line?.geometry.coordinates[0] as [number, number] | undefined
     if (c0) return c0
@@ -177,10 +182,10 @@ function FlightPage() {
 
   const onDownload = useCallback(async () => {
     setFlight(fn, travelDateQ)
-    setMsg('Downloading map (zoom 3–8)…')
+    setMsg('Downloading map, route, and geo features…')
     try {
       await downloadTiles()
-      setMsg('Map and route saved for offline use.')
+      setMsg('Map, route, and geo features saved for offline use.')
     } catch (e) {
       setMsg(
         e instanceof Error
@@ -257,15 +262,15 @@ function FlightPage() {
           className="inline-flex items-center gap-2 rounded-lg bg-slate-200 px-3 py-2 text-sm font-medium text-slate-900 disabled:cursor-not-allowed disabled:opacity-60"
           title={
             canSaveOffline
-              ? 'Caches map tiles (zoom 3–8) and this route for offline'
-              : 'Load tracks first so the map area is known, then you can download tiles for offline'
+              ? 'Caches map tiles, geo feature tiles, and this route for offline'
+              : 'Load tracks first so the map area is known, then you can save it for offline'
           }
         >
           {tileProgress && (
             <Loader2 className="size-4 shrink-0 animate-spin" aria-hidden />
           )}
           {tileProgress
-            ? `${tileProgress.done} / ${tileProgress.total} tiles`
+            ? `${tileProgress.done} / ${tileProgress.total} files`
             : 'Save for offline'}
         </button>
         <label className="inline-flex items-center gap-2 text-sm">
@@ -279,7 +284,7 @@ function FlightPage() {
       </div>
       {tileProgress && (
         <p className="text-slate-400 mb-2 text-sm tabular-nums">
-          Saving map for offline — tiles {tileProgress.done} /{' '}
+          Saving map for offline — files {tileProgress.done} /{' '}
           {tileProgress.total}
         </p>
       )}
@@ -358,6 +363,7 @@ function FlightPage() {
         mapBearing={mapBearing}
         followMode={followMode}
         planeTrackBearingDeg={trackBearingTurfDeg}
+        geoFeatures={geoFeatures}
         onFollowModeChange={setFollowMode}
       />
 

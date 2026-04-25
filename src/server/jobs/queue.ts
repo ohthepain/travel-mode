@@ -1,7 +1,10 @@
 import type { PgBoss } from 'pg-boss'
 import { prisma } from '../db'
+import { EUROPE_GEO_FEATURE_BBOX } from '../geo-features/build'
 import { getFlightSummaryLookbackDays } from '../fr24/client'
 import { getBoss } from './boss'
+import { BUILD_GEO_FEATURES_QUEUE } from './geo-features'
+import type { BuildGeoFeaturesPayload } from './geo-features'
 import type { SyncFlightPayload } from './sync-payload'
 import { flightNumbersFromPayload } from './sync-payload'
 
@@ -37,7 +40,11 @@ export async function flightAlreadySynced(flightNumber: string) {
   const days = getFlightSummaryLookbackDays()
   const cutoff = new Date(Date.now() - days * 86_400_000)
   const from = new Date(
-    Date.UTC(cutoff.getUTCFullYear(), cutoff.getUTCMonth(), cutoff.getUTCDate()),
+    Date.UTC(
+      cutoff.getUTCFullYear(),
+      cutoff.getUTCMonth(),
+      cutoff.getUTCDate(),
+    ),
   )
   const n = await prisma.track.count({
     where: { flightNumber, travelDate: { gte: from } },
@@ -70,7 +77,9 @@ export async function enqueueSyncFlight(flightNumber: string) {
 export async function enqueueSyncFlightMany(flightNumbers: string[]) {
   const payload: SyncFlightPayload = { flightNumbers }
   if (flightNumbersFromPayload(payload).length === 0) {
-    throw new Error('enqueueSyncFlightMany: at least one flight number required')
+    throw new Error(
+      'enqueueSyncFlightMany: at least one flight number required',
+    )
   }
   const boss = await getBoss()
   const id = await boss.send('sync_flight', payload, {
@@ -80,10 +89,30 @@ export async function enqueueSyncFlightMany(flightNumbers: string[]) {
   return id ?? jobKeyFromPayload(payload)
 }
 
-export async function enqueueSyncFlightWithBoss(boss: PgBoss, flightNumber: string) {
+export async function enqueueSyncFlightWithBoss(
+  boss: PgBoss,
+  flightNumber: string,
+) {
   const payload: SyncFlightPayload = { flightNumber }
   return boss.send('sync_flight', payload, {
     singletonKey: jobKeyFromPayload(payload),
     retryLimit: 2,
   })
+}
+
+export async function enqueueEuropeGeoFeatures(
+  options: { dryRun?: boolean } = {},
+) {
+  const boss = await getBoss()
+  const payload: BuildGeoFeaturesPayload = {
+    bbox: EUROPE_GEO_FEATURE_BBOX,
+    dryRun: options.dryRun ?? false,
+    sources: { geonames: true, naturalearth: false },
+  }
+  const singletonKey = `geo_features:geonames:europe:${payload.dryRun ? 'dry' : 'upload'}`
+  const id = await boss.send(BUILD_GEO_FEATURES_QUEUE, payload, {
+    singletonKey,
+    retryLimit: 1,
+  })
+  return id ?? singletonKey
 }
