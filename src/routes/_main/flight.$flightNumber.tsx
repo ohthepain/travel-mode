@@ -2,6 +2,7 @@ import { createFileRoute } from '@tanstack/react-router'
 import { Loader2 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { FlightMap } from '../../components/FlightMap'
+import { wrapDegrees180 } from '../../lib/angle'
 import { cn } from '../../lib/cn'
 import { effectiveFlightMapBbox } from '../../lib/route-bbox-expand'
 import { flightTrackDurationMs, trackBearingTurf, useFlightStore } from '../../stores/flight'
@@ -66,7 +67,8 @@ function FlightPage() {
   const [elapsedMs, setElapsedMs] = useState(0)
   const [isPlaying, setIsPlaying] = useState(false)
   const [hasStartedPlayback, setHasStartedPlayback] = useState(false)
-  const [compassMode, setCompassMode] = useState(true)
+  /** Heading-up: map rotates with track, icon fixed nose-up. North-up: map bearing 0, icon shows track direction. */
+  const [followMode, setFollowMode] = useState(false)
   const playbackAnchorWallMs = useRef(0)
   const playbackAnchorElapsedMs = useRef(0)
 
@@ -74,7 +76,7 @@ function FlightPage() {
     setElapsedMs(0)
     setIsPlaying(false)
     setHasStartedPlayback(false)
-    setCompassMode(true)
+    setFollowMode(false)
   }, [mapSessionKey])
 
   useEffect(() => {
@@ -135,13 +137,12 @@ function FlightPage() {
     [line, elapsedMs],
   )
   const mapBearing = useMemo(() => {
-    if (compassMode) return 0
+    if (!followMode) return 0
     if (trackBearingTurfDeg == null) return 0
-    // Turf: ° clockwise from north. MapLibre: ° counterclockwise from north.
-    // Align track tangent with viewport bottom (not top): heading-up uses -θ; bottom is +180°.
-    const b = 180 - trackBearingTurfDeg
-    return ((b + 540) % 360) - 180
-  }, [compassMode, trackBearingTurfDeg])
+    // Heading-up: rotate the map so track direction sits at the top of the screen (compensate for heading).
+    // Use the same numeric compass angle as Turf (° clockwise from north); negating was rotating with the track.
+    return wrapDegrees180(trackBearingTurfDeg)
+  }, [followMode, trackBearingTurfDeg])
 
   const loadTracks = useCallback(async () => {
     setMsg(null)
@@ -355,8 +356,9 @@ function FlightPage() {
         mapSessionKey={mapSessionKey}
         initialOfflineCenter={initialOfflineCenter}
         mapBearing={mapBearing}
-        compassMode={compassMode}
-        onCompassModeChange={setCompassMode}
+        followMode={followMode}
+        planeTrackBearingDeg={trackBearingTurfDeg}
+        onFollowModeChange={setFollowMode}
       />
 
       <section className="mt-4 max-w-3xl rounded-xl border border-slate-800 bg-slate-900/50 p-4">

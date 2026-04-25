@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import maplibregl from 'maplibre-gl'
 import type { Feature, LineString } from 'geojson'
-import { Compass } from 'lucide-react'
 import { getTileData } from '../lib/tile-idb'
 import { cn } from '../lib/cn'
 import {
@@ -9,10 +8,33 @@ import {
   minZoomToContainViewportInBBox,
   viewportFitsInBBox,
 } from '../lib/map-bbox-clamp'
+import { normalizeBearing360, wrapDegrees180 } from '../lib/angle'
 import { appMapTileUrlTemplate } from '../lib/tiles'
 import 'maplibre-gl/dist/maplibre-gl.css'
 
 const OFF = 'offtm'
+
+/** Top-down plane, nose toward -Y (straight up in SVG / screen before MapLibre rotation). White fill, amber outline. */
+const PLANE_PATH_D =
+  'M 0 -22 L 4 -7 L 20 -4 L 20 2 L 4 -0.5 L 3 17 L -3 17 L -4 -0.5 L -20 2 L -20 -4 L -4 -7 Z'
+
+const PLANE_MARKER_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="-24 -24 48 48" width="44" height="44" aria-hidden="true"><path fill="#ffffff" stroke="#f59e0b" stroke-width="2.25" stroke-linejoin="round" d="${PLANE_PATH_D}"/></svg>`
+
+function formatHeadingLabel(trackDeg: number | null): string {
+  if (trackDeg == null || Number.isNaN(trackDeg)) return '—'
+  return `${Math.round(normalizeBearing360(trackDeg))}°`
+}
+
+function createPlaneMarkerElement(): HTMLElement {
+  const root = document.createElement('div')
+  root.className = 'flight-map-plane-marker'
+  root.style.display = 'flex'
+  root.style.alignItems = 'center'
+  root.style.justifyContent = 'center'
+  root.style.pointerEvents = 'none'
+  root.innerHTML = PLANE_MARKER_SVG
+  return root
+}
 
 let greyPng256: ArrayBuffer | null = null
 async function missingOfflineTilePng(): Promise<ArrayBuffer> {
@@ -43,11 +65,13 @@ export type FlightMapProps = {
   mapSessionKey: string
   /** Seed for offline user anchor; not driven by live position updates. */
   initialOfflineCenter: [number, number]
-  /** MapLibre bearing in degrees (CCW from north). Compass off: rotated so track direction points toward viewport bottom. */
+  /** MapLibre bearing in degrees (CCW from north). Heading-up when followMode; otherwise 0 (north-up). */
   mapBearing: number
-  /** When true, north is at the top; when false, track direction is toward the bottom of the map. */
-  compassMode: boolean
-  onCompassModeChange: (next: boolean) => void
+  /** When true (heading-up), map rotates with track and the plane icon stays nose-up. When false (north-up), map bearing is 0 and the icon rotates. */
+  followMode: boolean
+  /** Turf-style track bearing (° clockwise from north); used for the plane icon in north-up mode only. */
+  planeTrackBearingDeg: number | null
+  onFollowModeChange: (next: boolean) => void
 }
 
 function parseOfftmUrl(url: string) {
@@ -87,8 +111,9 @@ export function FlightMap({
   mapSessionKey,
   initialOfflineCenter,
   mapBearing,
-  compassMode,
-  onCompassModeChange,
+  followMode,
+  planeTrackBearingDeg,
+  onFollowModeChange,
 }: FlightMapProps) {
   const el = useRef<HTMLDivElement | null>(null)
   const map = useRef<maplibregl.Map | null>(null)
@@ -308,14 +333,35 @@ export function FlightMap({
       marker.current = null
       return
     }
+    // North-up: only the icon rotates with track. Heading-up: map bears track; icon stays nose-up (0°).
+    const trackDeg = planeTrackBearingDeg ?? 0
+    const iconRot = followMode ? 0 : wrapDegrees180(trackDeg)
     if (!marker.current) {
-      marker.current = new maplibregl.Marker({ color: '#f59e0b' })
+      marker.current = new maplibregl.Marker({
+        element: createPlaneMarkerElement(),
+        anchor: 'center',
+        pitchAlignment: 'viewport',
+        rotationAlignment: 'viewport',
+        rotation: iconRot,
+        subpixelPositioning: true,
+      })
         .setLngLat([planeLng, planeLat])
         .addTo(m)
     } else {
       marker.current.setLngLat([planeLng, planeLat])
+      marker.current.setPitchAlignment('viewport')
+      marker.current.setRotationAlignment('viewport')
+      marker.current.setRotation(iconRot)
     }
-  }, [plane, planeLng, planeLat, mapReady, mapSessionKey])
+  }, [
+    plane,
+    planeLng,
+    planeLat,
+    mapReady,
+    mapSessionKey,
+    followMode,
+    planeTrackBearingDeg,
+  ])
 
   return (
     <div className="relative w-full">
@@ -329,19 +375,54 @@ export function FlightMap({
           useOfflineRaster && 'bg-zinc-600',
         )}
       />
-      <div className="absolute top-2 left-2 z-10">
+      <div className="absolute top-2 left-2 z-10 flex flex-col items-center gap-1">
+        <span
+          className="min-h-3.5 text-[0.65rem] font-semibold tabular-nums leading-none tracking-tight text-slate-100"
+          aria-hidden
+        >
+          {followMode ? formatHeadingLabel(planeTrackBearingDeg) : 'N'}
+        </span>
         <button
           type="button"
-          className="flex items-center justify-center rounded-lg border border-slate-600/90 bg-slate-900/95 p-2 text-slate-200 shadow-md backdrop-blur-sm hover:bg-slate-800/95 disabled:cursor-not-allowed disabled:opacity-50"
-          onClick={() => onCompassModeChange(!compassMode)}
-          aria-pressed={compassMode}
+          className={cn(
+            'flex size-13 shrink-0 items-center justify-center rounded-full border-2 border-amber-500/85',
+            'bg-slate-950/95 text-slate-200 shadow-md backdrop-blur-sm',
+            'hover:bg-slate-900/95 disabled:cursor-not-allowed disabled:opacity-50',
+          )}
+          onClick={() => onFollowModeChange(!followMode)}
+          aria-pressed={followMode}
+          aria-label={
+            followMode
+              ? `Heading-up, track ${formatHeadingLabel(planeTrackBearingDeg)}. Switch to north-up.`
+              : 'North-up. Switch to heading-up.'
+          }
           title={
-            compassMode
-              ? 'North at top of screen (on). Click for track-down: direction of flight toward bottom of map.'
-              : 'Track down: direction of flight toward bottom of map. Click for north at top.'
+            followMode
+              ? 'Heading-up: map follows direction of travel; plane icon stays pointed up. Click for north-up.'
+              : 'North-up: north at the top; plane icon rotates with direction of travel. Click for heading-up.'
           }
         >
-          <Compass className="size-5 shrink-0" aria-hidden />
+          <svg viewBox="0 0 56 56" className="size-[2.85rem]" aria-hidden>
+            <circle
+              cx="28"
+              cy="28"
+              r="24"
+              className="fill-slate-900/95"
+              stroke="#f59e0b"
+              strokeWidth="1.75"
+            />
+            <g
+              transform={`translate(28,28) rotate(${followMode ? 0 : planeTrackBearingDeg ?? 0}) scale(0.44)`}
+            >
+              <path
+                d={PLANE_PATH_D}
+                fill="#ffffff"
+                stroke="#f59e0b"
+                strokeWidth="2.25"
+                strokeLinejoin="round"
+              />
+            </g>
+          </svg>
         </button>
       </div>
     </div>
