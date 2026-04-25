@@ -4,6 +4,7 @@ import type { Feature, LineString } from 'geojson'
 import { getTileData } from '../lib/tile-idb'
 import { cn } from '../lib/cn'
 import {
+  centerOnPlaneWithBBoxNudge,
   clampCenterToContainBBox,
   minZoomToContainViewportInBBox,
   viewportFitsInBBox,
@@ -127,6 +128,8 @@ export function FlightMap({
   /** Latest bearing for offline bbox clamp (avoid reattaching effect on every playback tick). */
   const mapBearingRef = useRef(mapBearing)
   mapBearingRef.current = mapBearing
+  /** Tracks followMode across renders so we can run a one-shot recenter only when it turns on. */
+  const followModePrevRef = useRef(false)
 
   useEffect(() => {
     userOverrideViewRef.current = false
@@ -136,6 +139,7 @@ export function FlightMap({
     if (lastSessionKeyRef.current !== mapSessionKey) {
       lastSessionKeyRef.current = mapSessionKey
       userAnchorRef.current = initialOfflineCenter
+      followModePrevRef.current = false
     }
   }, [mapSessionKey, initialOfflineCenter])
 
@@ -226,6 +230,36 @@ export function FlightMap({
     // array each render (same values), which would reset the map after every pan.
     m.jumpTo({ center: [centerLng, centerLat], zoom, bearing: mapBearing })
   }, [centerLng, centerLat, zoom, mapBearing, mapReady, useOfflineRaster])
+
+  /** When follow mode turns on, center the map on the plane once; single bbox nudge so tiles stay in view. */
+  useEffect(() => {
+    const m = map.current
+    if (!m || !mapReady) return
+    const turnedOn = followMode && !followModePrevRef.current
+    followModePrevRef.current = followMode
+    if (!turnedOn) return
+    if (plane == null || Number.isNaN(plane[0]) || Number.isNaN(plane[1])) return
+    const [plng, plat] = plane
+    const z = useOfflineRaster ? Math.max(zoom, m.getMinZoom()) : zoom
+    let L = plng
+    let φ = plat
+    if (bbox) {
+      ;[L, φ] = centerOnPlaneWithBBoxNudge(m, plng, plat, bbox, z, mapBearing)
+    }
+    m.jumpTo({ center: [L, φ], zoom: z, bearing: mapBearing })
+    if (useOfflineRaster) userAnchorRef.current = [L, φ]
+  }, [
+    followMode,
+    mapReady,
+    plane,
+    mapBearing,
+    zoom,
+    useOfflineRaster,
+    bbox?.[0],
+    bbox?.[1],
+    bbox?.[2],
+    bbox?.[3],
+  ])
 
   useEffect(() => {
     const m = map.current

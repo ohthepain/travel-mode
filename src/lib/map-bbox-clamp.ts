@@ -79,3 +79,31 @@ export function minZoomToContainViewportInBBox(map: Map, bbox: LonLatBBox): numb
   map.jumpTo({ center: [cx, cy], zoom: hi })
   return hi
 }
+
+/**
+ * Put the plane at the map center, read viewport bounds once, then return a center shifted by the
+ * smallest (lng, lat) deltas so the viewport fits in `bbox` (single pass — no iteration).
+ */
+export function centerOnPlaneWithBBoxNudge(
+  map: Map,
+  planeLng: number,
+  planeLat: number,
+  bbox: LonLatBBox,
+  zoom: number,
+  bearing: number,
+): [number, number] {
+  const [west, south, east, north] = bbox
+  map.jumpTo({ center: [planeLng, planeLat], zoom, bearing })
+  const b = map.getBounds()
+  const w = b.getWest()
+  const e = b.getEast()
+  const s = b.getSouth()
+  const n = b.getNorth()
+  let dLng = 0
+  let dLat = 0
+  if (w < west) dLng += west - w
+  if (e > east) dLng += east - e
+  if (s < south) dLat += south - s
+  if (n > north) dLat += north - n
+  return [planeLng + dLng, planeLat + dLat]
+}
