@@ -3,9 +3,14 @@
     "**/routeTree.gen.ts": true
   },
   "search.exclude": {
+    "**/.dart_tool": false,
     "**/routeTree.gen.ts": true
   },
   "files.readonlyInclude": {
     "**/routeTree.gen.ts": true
+  },
+  "files.exclude": {
+    "**/flutter/ephemeral": false,
+    "**/Flutter/ephemeral": false
   }
 }

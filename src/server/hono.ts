@@ -10,6 +10,8 @@ import {
 } from './routes/airlabs'
 import { flightRoutes } from './routes/flights'
 import { geoFeatureRoutes } from './routes/geo-features'
+import { mapStyleVectorRoutes } from './routes/map-style-vector'
+import { maptileCdnRoutes } from './routes/maptile-cdn'
 import { mapTileRoutes } from './routes/map-tiles'
 
 const corsOrigins = getTrustedOrigins()
@@ -38,5 +40,7 @@ app.route('/airports', airportRoutes)
 app.route('/airlines', airlineRoutes)
 app.route('/cities', cityRoutes)
 app.route('/map-tiles', mapTileRoutes)
+app.route('/maptiler-cdn', maptileCdnRoutes)
+app.route('/map-style-vector', mapStyleVectorRoutes)
 app.route('/geo-features', geoFeatureRoutes)
 app.route('/admin', adminRoutes)

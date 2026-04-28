@@ -6,7 +6,8 @@ declare module '@flightradar24/fr24sdk' {
 }
 
 interface ImportMetaEnv {
-  readonly VITE_MAPTILER_KEY: string
+  /** MapTiler Cloud API key; used by the server tile proxy only (`/api/map-tiles/...`). */
+  readonly VITE_MAPTILER_API_KEY?: string
   /** Optional: public https origin when testing OAuth via a tunnel (must match Google redirect URIs). */
   readonly VITE_PUBLIC_APP_URL?: string
 }

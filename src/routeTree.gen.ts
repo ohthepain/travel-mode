@@ -21,6 +21,9 @@ import { Route as MainMyFlightsSearchRouteImport } from './routes/_main/my-fligh
 import { Route as MainFlightFlightNumberRouteImport } from './routes/_main/flight.$flightNumber'
 import { Route as MainAdminTracksRouteImport } from './routes/_main/admin/tracks'
 import { Route as MainAdminPgbossRouteImport } from './routes/_main/admin/pgboss'
+import { Route as MainAdminCountriesRouteImport } from './routes/_main/admin/countries'
+import { Route as MainAdminAirportsRouteImport } from './routes/_main/admin/airports'
+import { Route as MainAdminAirlinesRouteImport } from './routes/_main/admin/airlines'
 
 const MainRouteRoute = MainRouteRouteImport.update({
   id: '/_main',
@@ -81,6 +84,21 @@ const MainAdminPgbossRoute = MainAdminPgbossRouteImport.update({
   path: '/admin/pgboss',
   getParentRoute: () => MainRouteRoute,
 } as any)
+const MainAdminCountriesRoute = MainAdminCountriesRouteImport.update({
+  id: '/admin/countries',
+  path: '/admin/countries',
+  getParentRoute: () => MainRouteRoute,
+} as any)
+const MainAdminAirportsRoute = MainAdminAirportsRouteImport.update({
+  id: '/admin/airports',
+  path: '/admin/airports',
+  getParentRoute: () => MainRouteRoute,
+} as any)
+const MainAdminAirlinesRoute = MainAdminAirlinesRouteImport.update({
+  id: '/admin/airlines',
+  path: '/admin/airlines',
+  getParentRoute: () => MainRouteRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof MainIndexRoute
@@ -88,6 +106,9 @@ export interface FileRoutesByFullPath {
   '/reset-password': typeof MainResetPasswordRoute
   '/sign-in': typeof MainSignInRoute
   '/api/$': typeof ApiSplatRoute
+  '/admin/airlines': typeof MainAdminAirlinesRoute
+  '/admin/airports': typeof MainAdminAirportsRoute
+  '/admin/countries': typeof MainAdminCountriesRoute
   '/admin/pgboss': typeof MainAdminPgbossRoute
   '/admin/tracks': typeof MainAdminTracksRoute
   '/flight/$flightNumber': typeof MainFlightFlightNumberRoute
@@ -101,6 +122,9 @@ export interface FileRoutesByTo {
   '/sign-in': typeof MainSignInRoute
   '/api/$': typeof ApiSplatRoute
   '/': typeof MainIndexRoute
+  '/admin/airlines': typeof MainAdminAirlinesRoute
+  '/admin/airports': typeof MainAdminAirportsRoute
+  '/admin/countries': typeof MainAdminCountriesRoute
   '/admin/pgboss': typeof MainAdminPgbossRoute
   '/admin/tracks': typeof MainAdminTracksRoute
   '/flight/$flightNumber': typeof MainFlightFlightNumberRoute
@@ -116,6 +140,9 @@ export interface FileRoutesById {
   '/_main/sign-in': typeof MainSignInRoute
   '/api/$': typeof ApiSplatRoute
   '/_main/': typeof MainIndexRoute
+  '/_main/admin/airlines': typeof MainAdminAirlinesRoute
+  '/_main/admin/airports': typeof MainAdminAirportsRoute
+  '/_main/admin/countries': typeof MainAdminCountriesRoute
   '/_main/admin/pgboss': typeof MainAdminPgbossRoute
   '/_main/admin/tracks': typeof MainAdminTracksRoute
   '/_main/flight/$flightNumber': typeof MainFlightFlightNumberRoute
@@ -131,6 +158,9 @@ export interface FileRouteTypes {
     | '/reset-password'
     | '/sign-in'
     | '/api/$'
+    | '/admin/airlines'
+    | '/admin/airports'
+    | '/admin/countries'
     | '/admin/pgboss'
     | '/admin/tracks'
     | '/flight/$flightNumber'
@@ -144,6 +174,9 @@ export interface FileRouteTypes {
     | '/sign-in'
     | '/api/$'
     | '/'
+    | '/admin/airlines'
+    | '/admin/airports'
+    | '/admin/countries'
     | '/admin/pgboss'
     | '/admin/tracks'
     | '/flight/$flightNumber'
@@ -158,6 +191,9 @@ export interface FileRouteTypes {
     | '/_main/sign-in'
     | '/api/$'
     | '/_main/'
+    | '/_main/admin/airlines'
+    | '/_main/admin/airports'
+    | '/_main/admin/countries'
     | '/_main/admin/pgboss'
     | '/_main/admin/tracks'
     | '/_main/flight/$flightNumber'
@@ -257,6 +293,27 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof MainAdminPgbossRouteImport
       parentRoute: typeof MainRouteRoute
     }
+    '/_main/admin/countries': {
+      id: '/_main/admin/countries'
+      path: '/admin/countries'
+      fullPath: '/admin/countries'
+      preLoaderRoute: typeof MainAdminCountriesRouteImport
+      parentRoute: typeof MainRouteRoute
+    }
+    '/_main/admin/airports': {
+      id: '/_main/admin/airports'
+      path: '/admin/airports'
+      fullPath: '/admin/airports'
+      preLoaderRoute: typeof MainAdminAirportsRouteImport
+      parentRoute: typeof MainRouteRoute
+    }
+    '/_main/admin/airlines': {
+      id: '/_main/admin/airlines'
+      path: '/admin/airlines'
+      fullPath: '/admin/airlines'
+      preLoaderRoute: typeof MainAdminAirlinesRouteImport
+      parentRoute: typeof MainRouteRoute
+    }
   }
 }
 
@@ -265,6 +322,9 @@ interface MainRouteRouteChildren {
   MainResetPasswordRoute: typeof MainResetPasswordRoute
   MainSignInRoute: typeof MainSignInRoute
   MainIndexRoute: typeof MainIndexRoute
+  MainAdminAirlinesRoute: typeof MainAdminAirlinesRoute
+  MainAdminAirportsRoute: typeof MainAdminAirportsRoute
+  MainAdminCountriesRoute: typeof MainAdminCountriesRoute
   MainAdminPgbossRoute: typeof MainAdminPgbossRoute
   MainAdminTracksRoute: typeof MainAdminTracksRoute
   MainFlightFlightNumberRoute: typeof MainFlightFlightNumberRoute
@@ -278,6 +338,9 @@ const MainRouteRouteChildren: MainRouteRouteChildren = {
   MainResetPasswordRoute: MainResetPasswordRoute,
   MainSignInRoute: MainSignInRoute,
   MainIndexRoute: MainIndexRoute,
+  MainAdminAirlinesRoute: MainAdminAirlinesRoute,
+  MainAdminAirportsRoute: MainAdminAirportsRoute,
+  MainAdminCountriesRoute: MainAdminCountriesRoute,
   MainAdminPgbossRoute: MainAdminPgbossRoute,
   MainAdminTracksRoute: MainAdminTracksRoute,
   MainFlightFlightNumberRoute: MainFlightFlightNumberRoute,

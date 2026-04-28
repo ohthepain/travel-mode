@@ -4,8 +4,18 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { FlightMap } from '../../components/FlightMap'
 import { wrapDegrees180 } from '../../lib/angle'
 import { cn } from '../../lib/cn'
+import {
+  isAllowedRasterMapId,
+  MAP_STYLE_DROPDOWN,
+  MapStyle,
+} from '../../lib/map-styles'
 import { effectiveFlightMapBbox } from '../../lib/route-bbox-expand'
-import { flightTrackDurationMs, trackBearingTurf, useFlightStore } from '../../stores/flight'
+import {
+  flightTrackDurationMs,
+  trackBearingTurf,
+  useFlightStore,
+} from '../../stores/flight'
+import { useAppOptionsStore } from '#/stores/app-options'
 
 type FlightSearch = { date?: string }
 
@@ -48,8 +58,21 @@ function FlightPage() {
   const positionAtElapsedMs = useFlightStore((s) => s.positionAtElapsedMs)
   const mapMode = useFlightStore((s) => s.mapMode)
   const lastTracksPayload = useFlightStore((s) => s.lastTracksPayload)
+  const rasterMapId = useFlightStore((s) => s.rasterMapId)
+  const setRasterMapId = useFlightStore((s) => s.setRasterMapId)
 
-  const isDev = import.meta.env.DEV
+  /** Native <select> breaks if value is not among <option> (e.g. stale id from an old pack). */
+  useEffect(() => {
+    if (!isAllowedRasterMapId(rasterMapId)) {
+      setRasterMapId(MapStyle.Base)
+    }
+  }, [rasterMapId, setRasterMapId])
+
+  const selectRasterValue = isAllowedRasterMapId(rasterMapId)
+    ? rasterMapId
+    : MapStyle.Base
+
+  const devMode = useAppOptionsStore((s) => s.devMode)
   const [showTracksJson, setShowTracksJson] = useState(false)
 
   const packDateKey = travelDateQ ?? 'latest'
@@ -71,6 +94,10 @@ function FlightPage() {
   const [hasStartedPlayback, setHasStartedPlayback] = useState(false)
   /** Heading-up: map rotates with track, icon fixed nose-up. North-up: map bearing 0, icon shows track direction. */
   const [followMode, setFollowMode] = useState(false)
+  /**
+   * Online: same MapTiler preset as vector, hide place names. Offline: still raster; labels can show.
+   */
+  const [hideBasemapLabels, setHideBasemapLabels] = useState(false)
   const playbackAnchorWallMs = useRef(0)
   const playbackAnchorElapsedMs = useRef(0)
 
@@ -79,6 +106,7 @@ function FlightPage() {
     setIsPlaying(false)
     setHasStartedPlayback(false)
     setFollowMode(false)
+    setHideBasemapLabels(false)
   }, [mapSessionKey])
 
   useEffect(() => {
@@ -92,7 +120,9 @@ function FlightPage() {
     const tick = () => {
       const next = Math.min(
         durationMs,
-        Date.now() - playbackAnchorWallMs.current + playbackAnchorElapsedMs.current,
+        Date.now() -
+          playbackAnchorWallMs.current +
+          playbackAnchorElapsedMs.current,
       )
       setElapsedMs(next)
       if (next >= durationMs) {
@@ -125,15 +155,26 @@ function FlightPage() {
   const center: [number, number] = pos ?? [0, 20]
   const zoom = line ? 5 : 2
   /** API bbox ∪ line bounds, extended past track ends so maps/tiles reach the destination when ADS-B stops early. */
-  const mapBbox = useMemo(() => effectiveFlightMapBbox(line, bbox), [line, bbox])
+  const mapBbox = useMemo(
+    () => effectiveFlightMapBbox(line, bbox),
+    [line, bbox],
+  )
   const canSaveOffline = mapBbox != null
   useEffect(() => {
     void loadGeoFeaturesFromIdb()
-  }, [loadGeoFeaturesFromIdb, mapBbox?.[0], mapBbox?.[1], mapBbox?.[2], mapBbox?.[3], line])
+  }, [
+    loadGeoFeaturesFromIdb,
+    mapBbox?.[0],
+    mapBbox?.[1],
+    mapBbox?.[2],
+    mapBbox?.[3],
+    line,
+  ])
   const initialOfflineCenter = useMemo((): [number, number] => {
     const c0 = line?.geometry.coordinates[0] as [number, number] | undefined
     if (c0) return c0
-    if (mapBbox) return [(mapBbox[0] + mapBbox[2]) / 2, (mapBbox[1] + mapBbox[3]) / 2]
+    if (mapBbox)
+      return [(mapBbox[0] + mapBbox[2]) / 2, (mapBbox[1] + mapBbox[3]) / 2]
     return [0, 20]
   }, [fn, packDateKey, line, mapBbox])
 
@@ -190,7 +231,7 @@ function FlightPage() {
       setMsg(
         e instanceof Error
           ? e.message
-          : 'Download failed. Set VITE_MAPTILER_KEY or MAPTILER_API_KEY in .env (server proxies tiles).',
+          : 'Download failed. Set VITE_MAPTILER_API_KEY in .env (server proxies tiles).',
       )
     }
   }, [downloadTiles, fn, travelDateQ, setFlight])
@@ -225,12 +266,14 @@ function FlightPage() {
           >
             Load tracks
           </button>
-          {isDev && (
+          {devMode && (
             <button
               type="button"
               className="rounded-lg border border-amber-700/80 bg-amber-950/50 px-3 py-2 text-amber-100/90 text-sm"
               onClick={() => setShowTracksJson((v) => !v)}
-              title={lastTracksPayload == null ? 'Load tracks first' : undefined}
+              title={
+                lastTracksPayload == null ? 'Load tracks first' : undefined
+              }
             >
               {showTracksJson ? 'Hide' : 'Show'} tracks JSON
             </button>
@@ -238,11 +281,12 @@ function FlightPage() {
         </div>
       </div>
 
-      {isDev && showTracksJson && (
+      {devMode && showTracksJson && (
         <div className="mb-3 max-w-3xl">
           {lastTracksPayload == null ? (
             <p className="text-slate-500 m-0 text-sm">
-              No track payload yet — use Load tracks, or open a flight saved for offline.
+              No track payload yet — use Load tracks, or open a flight saved for
+              offline.
             </p>
           ) : (
             <pre className="max-h-[min(50vh,360px)] overflow-auto rounded-lg border border-slate-700 bg-slate-950/90 p-3 text-xs text-slate-200 tabular-nums">
@@ -254,7 +298,47 @@ function FlightPage() {
 
       {msg && <p className="mb-2 text-amber-200">{msg}</p>}
 
-      <div className="mb-3 flex flex-wrap gap-2">
+      <div className="mb-3 flex flex-wrap items-end gap-2">
+        <label className="relative z-20 flex min-w-0 flex-col gap-1 text-sm text-slate-300">
+          <span className="text-slate-500">
+            Map style (download and online)
+          </span>
+          <select
+            className="min-w-36 appearance-auto rounded-lg border border-slate-600 bg-slate-900 px-2 py-2 text-slate-100"
+            value={selectRasterValue}
+            disabled={Boolean(tileProgress)}
+            title={
+              tileProgress
+                ? 'Wait until Save for offline finishes'
+                : useOffline
+                  ? 'Changing basemap turns off offline mode so the new style can load online tiles'
+                  : 'MapTiler basemap: used for live view and the next Save for offline'
+            }
+            onChange={(e) => {
+              const v = e.target.value
+              if (!isAllowedRasterMapId(v)) return
+              if (useOffline && v !== rasterMapId) {
+                setUseOffline(false)
+                setMsg(
+                  'Offline mode turned off so the new basemap can load online tiles. Save for offline again if you need this style cached.',
+                )
+              }
+              setRasterMapId(v)
+            }}
+          >
+            {MAP_STYLE_DROPDOWN.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+          {useOffline && !tileProgress ? (
+            <span className="max-w-xs text-xs text-slate-500">
+              Choosing another basemap here turns off Offline mode so tiles can
+              load from the network.
+            </span>
+          ) : null}
+        </label>
         <button
           type="button"
           onClick={onDownload}
@@ -281,6 +365,24 @@ function FlightPage() {
           />
           Offline mode
         </label>
+        <label
+          className="inline-flex min-w-0 max-w-sm items-center gap-2 text-sm"
+          title={
+            useOffline
+              ? 'Saved tiles are raster images; to hide text use online mode or try the Satellite basemap for imagery with fewer labels.'
+              : 'Uses MapTiler’s hosted vector style (same style id) and hides basemap text at runtime. No custom map in Cloud.'
+          }
+        >
+          <input
+            type="checkbox"
+            checked={hideBasemapLabels}
+            disabled={useOffline}
+            onChange={(e) => setHideBasemapLabels(e.target.checked)}
+          />
+          <span className={useOffline ? 'text-slate-500' : 'text-slate-200'}>
+            Hide basemap labels (online)
+          </span>
+        </label>
       </div>
       {tileProgress && (
         <p className="text-slate-400 mb-2 text-sm tabular-nums">
@@ -292,8 +394,8 @@ function FlightPage() {
       <div className="mb-2 text-slate-500 text-sm">
         {useOffline && mapBbox ? (
           <>
-            Offline map stays within downloaded tiles (pan when zoomed in; zoom does not move your
-            pan target).
+            Offline map stays within downloaded tiles (pan when zoomed in; zoom
+            does not move your pan target).
           </>
         ) : (
           <>
@@ -304,8 +406,8 @@ function FlightPage() {
             {useOffline && (
               <span className="text-slate-400">
                 {' '}
-                — load tracks (or open this page after saving for offline) so the map can limit the
-                view to cached tiles.
+                — load tracks (or open this page after saving for offline) so
+                the map can limit the view to cached tiles.
               </span>
             )}
           </>
@@ -313,15 +415,12 @@ function FlightPage() {
       </div>
 
       <section className="mb-3 max-w-3xl rounded-xl border border-slate-800 bg-slate-900/50 p-4">
-        <h2 className="mb-2 mt-0 text-base font-medium text-white">Flight playback</h2>
+        <h2 className="mb-2 mt-0 text-base font-medium text-white">
+          Flight playback
+        </h2>
         <p className="text-slate-500 mb-3 text-sm tabular-nums">
           Elapsed {formatElapsedHms(elapsedMs)}
-          {durationMs != null && (
-            <>
-              {' '}
-              / {formatElapsedHms(durationMs)}
-            </>
-          )}
+          {durationMs != null && <> / {formatElapsedHms(durationMs)}</>}
         </p>
         <div className="mb-3 flex flex-wrap items-center gap-2">
           <button
@@ -330,7 +429,11 @@ function FlightPage() {
             disabled={durationMs == null || isPlaying}
             onClick={onTakeOff}
           >
-            {isPlaying ? 'In flight…' : hasStartedPlayback ? 'Resume' : 'Take off'}
+            {isPlaying
+              ? 'In flight…'
+              : hasStartedPlayback
+                ? 'Resume'
+                : 'Take off'}
           </button>
         </div>
         <label className="flex flex-col gap-1 text-sm">
@@ -364,6 +467,8 @@ function FlightPage() {
         followMode={followMode}
         planeTrackBearingDeg={trackBearingTurfDeg}
         geoFeatures={geoFeatures}
+        rasterMapId={rasterMapId}
+        hideBasemapLabels={hideBasemapLabels}
         onFollowModeChange={setFollowMode}
       />
 

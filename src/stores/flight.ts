@@ -8,6 +8,7 @@ import {
   putTile,
   saveFlightPack,
 } from '../lib/tile-idb'
+import { MapStyle, type RasterMapId, isAllowedRasterMapId } from '../lib/map-styles'
 import { appMapTileUrlTemplate, countTilesBbox, tileRangeForBbox } from '../lib/tiles'
 import { effectiveFlightMapBbox } from '../lib/route-bbox-expand'
 import {
@@ -39,6 +40,9 @@ export type FlightState = {
   correctionEN: { e: number; n: number }
   tileProgress: { done: number; total: number } | null
   useOffline: boolean
+  /** MapTiler basemap `mapId` for online tiles and the next / current offline download. */
+  rasterMapId: RasterMapId
+  setRasterMapId: (id: RasterMapId) => void
   /** When true (home), page chrome uses full width for the map. */
   mapMode: boolean
   setMapMode: (v: boolean) => void
@@ -86,6 +90,8 @@ export const useFlightStore = create<FlightState>((set, get) => ({
   correctionEN: { e: 0, n: 0 },
   tileProgress: null,
   useOffline: false,
+  rasterMapId: MapStyle.Base,
+  setRasterMapId: (id) => set({ rasterMapId: id }),
   mapMode: false,
   setMapMode: (v) => set({ mapMode: v }),
   setFlight: (fn, d) =>
@@ -131,6 +137,8 @@ export const useFlightStore = create<FlightState>((set, get) => ({
       const g = p.geojson as FeatureCollection
       const line = firstLineString(g)
       const t0 = line ? firstTime(line) : null
+      const packMap =
+        p.rasterMapId && isAllowedRasterMapId(p.rasterMapId) ? p.rasterMapId : MapStyle.Base
       set({
         line,
         lastGeojson: p.geojson,
@@ -139,6 +147,7 @@ export const useFlightStore = create<FlightState>((set, get) => ({
         bbox: p.bbox,
         takeoff: t0 != null ? new Date(t0) : new Date(),
         useOffline: true,
+        rasterMapId: packMap,
       })
     } else {
       set({ useOffline: false })
@@ -156,7 +165,8 @@ export const useFlightStore = create<FlightState>((set, get) => ({
     set({ geoFeatures })
   },
   downloadTiles: async () => {
-    const { line, lastGeojson, flightNumber, travelDate, bbox } = get()
+    const { line, lastGeojson, flightNumber, travelDate, bbox, rasterMapId: rid0 } = get()
+    const rasterMapId = rid0
     const b = effectiveFlightMapBbox(line, bbox)
     if (!b) {
       throw new Error(
@@ -168,7 +178,7 @@ export const useFlightStore = create<FlightState>((set, get) => ({
     const total = countTilesBbox(Z_MIN, Z_MAX, w, s, e, n) + geoPlan.length
     set({ tileProgress: { done: 0, total } })
     try {
-      const base = appMapTileUrlTemplate()
+      const base = appMapTileUrlTemplate(rasterMapId)
       let done = 0
       for (let z = Z_MIN; z <= Z_MAX; z++) {
         for (const t of tileRangeForBbox(z, w, s, e, n)) {
@@ -179,11 +189,11 @@ export const useFlightStore = create<FlightState>((set, get) => ({
           const res = await fetch(u)
           if (res.ok) {
             const buf = await res.arrayBuffer()
-            await putTile(t, buf)
+            await putTile(t, buf, rasterMapId)
           } else if (res.status === 503) {
             const body = await res.text()
             throw new Error(
-              body || 'Tile proxy: set MAPTILER_API_KEY or VITE_MAPTILER_KEY in .env and restart the dev server.',
+              body || 'Tile proxy: set VITE_MAPTILER_API_KEY in .env and restart the dev server.',
             )
           } else if (res.status === 502) {
             const body = await res.text()
@@ -196,6 +206,8 @@ export const useFlightStore = create<FlightState>((set, get) => ({
         }
       }
       for (const { tile, resolution } of geoPlan) {
+        // 404 = no file for that degree cell in the bucket; normal outside built coverage (see docs/offline-maps).
+        // DevTools may still show "404 (Not Found)" for these GETs with a line pointer here—that is the fetch initiator, not a thrown app error; we do not throw on 404.
         const res = await fetch(appGeoFeatureTileUrl(tile, resolution))
         if (res.ok) {
           const geojson = await res.json()
@@ -215,7 +227,7 @@ export const useFlightStore = create<FlightState>((set, get) => ({
       if (isFeatureCollection(lastGeojson)) {
         fc = lastGeojson
       }
-      await saveFlightPack(flightNumber, travelDate, { geojson: fc, bbox: b })
+      await saveFlightPack(flightNumber, travelDate, { geojson: fc, bbox: b, rasterMapId })
       set({ geoFeatures: await getGeoFeaturesForTiles(geoPlan) })
       set({ useOffline: true })
     } finally {

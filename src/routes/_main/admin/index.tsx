@@ -34,6 +34,45 @@ function AdminHome() {
           </li>
           <li>
             <Link
+              to="/admin/airports"
+              className="text-[var(--sea-accent)] font-medium underline decoration-[var(--sea-accent)]/50 underline-offset-2 hover:decoration-[var(--sea-accent)]"
+            >
+              Airports
+            </Link>
+            <span className="text-[var(--sea-ink-soft)]"> — </span>
+            <span className="text-[var(--sea-ink-soft)]">
+              import OurAirports CSV and build client{' '}
+              <code className="text-sm">airports.json</code>
+            </span>
+          </li>
+          <li>
+            <Link
+              to="/admin/airlines"
+              className="text-[var(--sea-accent)] font-medium underline decoration-[var(--sea-accent)]/50 underline-offset-2 hover:decoration-[var(--sea-accent)]"
+            >
+              Airlines
+            </Link>
+            <span className="text-[var(--sea-ink-soft)]"> — </span>
+            <span className="text-[var(--sea-ink-soft)]">
+              import OpenFlights <code className="text-sm">airlines.dat</code> →{' '}
+              <code className="text-sm">airlines.json</code>
+            </span>
+          </li>
+          <li>
+            <Link
+              to="/admin/countries"
+              className="text-[var(--sea-accent)] font-medium underline decoration-[var(--sea-accent)]/50 underline-offset-2 hover:decoration-[var(--sea-accent)]"
+            >
+              Countries
+            </Link>
+            <span className="text-[var(--sea-ink-soft)]"> — </span>
+            <span className="text-[var(--sea-ink-soft)]">
+              import GeoNames <code className="text-sm">countryInfo.txt</code> →{' '}
+              <code className="text-sm">countries.json</code>
+            </span>
+          </li>
+          <li>
+            <Link
               to="/admin/tracks"
               className="text-[var(--sea-accent)] font-medium underline decoration-[var(--sea-accent)]/50 underline-offset-2 hover:decoration-[var(--sea-accent)]"
             >

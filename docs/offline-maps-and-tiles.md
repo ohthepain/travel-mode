@@ -15,11 +15,13 @@ The **flight page** (`src/routes/_main/flight.$flightNumber.tsx`) passes `mapBbo
 
 ## 2. Downloading the tiles
 
-Tiles are not fetched from MapTiler in the browser. The app uses a **same-origin** URL so the key stays on the server and referrer restrictions do not break requests.
+Tiles are not fetched from MapTiler in the browser. The app uses a **same-origin** URL so the key stays out of client bundles.
 
 - **Client URL pattern**: `appMapTileUrlTemplate()` in `src/lib/tiles.ts` returns  
   `{origin}/api/map-tiles/{z}/{x}/{y}.png`.
-- **Server** (`src/server/routes/map-tiles.ts`): Hono route `/map-tiles/:z/:x/:y` (mounted under the app’s API prefix) forwards to MapTiler’s raster template (`mapTilerRasterUrl` in `src/lib/tiles.ts`), using `MAPTILER_API_KEY` or `VITE_MAPTILER_KEY` from the environment.
+- **Server** (`src/server/routes/map-tiles.ts`): Hono route `/map-tiles/:z/:x/:y` (mounted under the app’s API prefix) forwards to MapTiler’s raster template (`mapTilerRasterUrl` in `src/lib/tiles.ts`), using `VITE_MAPTILER_API_KEY` from the environment (read on the server; not embedded in client JS unless you import it in client code).
+
+**MapTiler 403 on custom maps:** The proxy calls MapTiler from Node with `fetch` (no browser `Origin`). If your [MapTiler API key](https://docs.maptiler.com/cloud/api/authentication-key/) is restricted with **allowed HTTP origins**, those rules often **block** server-side tile requests. Use a key with **no origin restriction** for `VITE_MAPTILER_API_KEY`, or a dedicated “server” key. The key must belong to the same account as the custom map. See [protect your map key](https://docs.maptiler.com/guides/maps-apis/maps-platform/how-to-protect-your-map-key/) for tradeoffs.
 
 **Which tiles to download** (`useFlightStore.downloadTiles` in `src/stores/flight.ts`):
 

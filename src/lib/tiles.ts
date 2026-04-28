@@ -1,5 +1,8 @@
 /** Web Mercator XYZ tile indices for a lon/lat bbox at integer zoom (MapLibre / OSM). */
 
+import type { RasterMapId } from './map-styles'
+import { isAllowedRasterMapId, MapStyle } from './map-styles'
+
 function lonLatToTile(lon: number, lat: number, z: number) {
   const n = 2.0 ** z
   const x = Math.floor(((lon + 180) / 360) * n)
@@ -46,20 +49,42 @@ export function countTilesBbox(
   return n
 }
 
-/** Direct MapTiler URL (for server-to-server fetches; prefer {@link appMapTileUrlTemplate} in the browser). */
-export const mapTilerRasterUrl = (key: string) =>
-  `https://api.maptiler.com/maps/topo-v2/256/{z}/{x}/{y}.png?key=${encodeURIComponent(key)}`
+/**
+ * MapTiler Maps API raster template (`{z}` / `{x}` / `{y}` for MapLibre).
+ * `mapId` (from the `?map=` query) wins; else {@link MapStyle.Base}.
+ */
+export function mapTilerRasterUrl(
+  key: string,
+  mapIdFromQuery: string | null | undefined,
+): string {
+  const q = mapIdFromQuery?.trim()
+  const mapId = q && isAllowedRasterMapId(q) ? q : MapStyle.Base
+  return `https://api.maptiler.com/maps/${encodeURIComponent(mapId)}/256/{z}/{x}/{y}.png?key=${encodeURIComponent(key)}`
+}
 
 /**
  * Same-origin tile URL so MapLibre / fetch do not call MapTiler directly (avoids 403 for referrer-locked keys).
- * Placeholders: `{z}` `{x}` `{y}`.
+ * Placeholders: `{z}` `{x}` `{y}`. The `map` query selects the MapTiler raster `mapId` (see {@link map-styles}).
  */
-export function appMapTileUrlTemplate(): string {
+export function appMapTileUrlTemplate(rasterMapId: string): string {
   // Do not use `new URL(...).href` — the URL API encodes `{` and `}` to %7B/%7D, and
   // MapLibre matches literal `{z}` / `{x}` / `{y}` in the string when substituting tiles.
   const base =
     typeof window === 'undefined'
       ? 'http://localhost:3020'
       : window.location.origin
-  return `${base}/api/map-tiles/{z}/{x}/{y}.png`
+  const q = `?map=${encodeURIComponent(rasterMapId)}`
+  return `${base}/api/map-tiles/{z}/{x}/{y}.png${q}`
+}
+
+/**
+ * Same-origin MapTiler vector `style.json` (see {@link appMapTileUrlTemplate} for raster).
+ * Used when hiding basemap labels: MapLibre loads vector layers, then we hide text symbol layers.
+ */
+export function appMapVectorStyleUrl(rasterMapId: RasterMapId): string {
+  const base =
+    typeof window === 'undefined'
+      ? 'http://localhost:3020'
+      : window.location.origin
+  return `${base}/api/map-style-vector?map=${encodeURIComponent(rasterMapId)}`
 }

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import maplibregl from 'maplibre-gl'
+import type { StyleSpecification } from 'maplibre-gl'
 import type { Feature, FeatureCollection, Geometry, LineString } from 'geojson'
 import { getTileData } from '../lib/tile-idb'
 import { cn } from '../lib/cn'
@@ -10,14 +11,15 @@ import {
   viewportFitsInBBox,
 } from '../lib/map-bbox-clamp'
 import { normalizeBearing360, wrapDegrees180 } from '../lib/angle'
-import { appMapTileUrlTemplate } from '../lib/tiles'
+import type { RasterMapId } from '../lib/map-styles'
+import { hideBasemapTextSymbolLayers } from '../lib/maplibre-hide-basemap-labels'
+import { ensureVectorStyleGlyphsForMapLibre } from '../lib/maptiler-style-urls'
+import { appMapTileUrlTemplate, appMapVectorStyleUrl } from '../lib/tiles'
 import { pickGeoLabelFeaturesForMapView } from '../lib/geo-label-pick'
 import 'maplibre-gl/dist/maplibre-gl.css'
 
-/** Single source: circles and labels use the same viewport grid-picked subset. */
-const GEO_SHOWN = 'geo-shown'
-const GEO_DARK = '#3f3f46'
-const GEO_STROKE = '#ffffff'
+const GEO_SOURCE = 'geo-features'
+const GEO_LABEL_SOURCE = 'geo-labels'
 
 const OFF = 'offtm'
 
@@ -79,7 +81,30 @@ export type FlightMapProps = {
   /** Turf-style track bearing (° clockwise from north); used for the plane icon in north-up mode only. */
   planeTrackBearingDeg: number | null
   geoFeatures: FeatureCollection<Geometry> | null
+  /** MapTiler raster `mapId` (online and offline `offtm` cache lookup). */
+  rasterMapId: RasterMapId
+  /**
+   * When true and online: load the same id as a **vector** MapTiler preset and hide basemap
+   * text (no custom style). Offline still uses cached **raster** tiles, so labels may show.
+   */
+  hideBasemapLabels: boolean
   onFollowModeChange: (next: boolean) => void
+}
+
+const transformMapTilerForProxy: maplibregl.MapOptions['transformRequest'] = (
+  url,
+) => {
+  if (
+    url.startsWith('https://api.maptiler.com/') ||
+    url.startsWith('http://api.maptiler.com/')
+  ) {
+    const origin =
+      typeof window !== 'undefined' ? window.location.origin : ''
+    return {
+      url: `${origin}/api/maptiler-cdn?u=${encodeURIComponent(url)}`,
+    }
+  }
+  return { url }
 }
 
 function parseOfftmUrl(url: string) {
@@ -113,20 +138,26 @@ function addOrUpdateGeoFeatures(
   m: maplibregl.Map,
   geoFeatures: FeatureCollection<Geometry> | null,
 ) {
-  const shown = m.getSource(GEO_SHOWN)
-  if (!shown) {
+  const main = m.getSource(GEO_SOURCE)
+  if (!main) {
     if (!geoFeatures) return
-    const picked = pickGeoLabelFeaturesForMapView(m, geoFeatures)
-    m.addSource(GEO_SHOWN, { type: 'geojson', data: picked as GeoJSON.GeoJSON })
+    m.addSource(GEO_SOURCE, {
+      type: 'geojson',
+      data: geoFeatures as GeoJSON.GeoJSON,
+    })
+    m.addSource(GEO_LABEL_SOURCE, {
+      type: 'geojson',
+      data: pickGeoLabelFeaturesForMapView(m, geoFeatures) as GeoJSON.GeoJSON,
+    })
     m.addLayer({
       id: 'geo-feature-points',
       type: 'circle',
-      source: GEO_SHOWN,
+      source: GEO_SOURCE,
       paint: {
-        'circle-color': GEO_DARK,
-        'circle-opacity': 0.92,
-        'circle-stroke-color': GEO_STROKE,
-        'circle-stroke-width': 1.35,
+        'circle-color': '#f8fafc',
+        'circle-opacity': 0.86,
+        'circle-stroke-color': '#2f374a',
+        'circle-stroke-width': 1.25,
         'circle-radius': [
           'interpolate',
           ['linear'],
@@ -143,7 +174,7 @@ function addOrUpdateGeoFeatures(
     m.addLayer({
       id: 'geo-feature-labels',
       type: 'symbol',
-      source: GEO_SHOWN,
+      source: GEO_LABEL_SOURCE,
       minzoom: 4,
       layout: {
         'text-field': ['get', 'name'],
@@ -153,11 +184,11 @@ function addOrUpdateGeoFeatures(
           ['linear'],
           ['coalesce', ['get', 'importance'], 25],
           25,
-          11,
+          10,
           70,
-          12,
+          11,
           100,
-          14,
+          13,
         ],
         'text-offset': [0.75, 0],
         'text-anchor': 'left',
@@ -165,22 +196,24 @@ function addOrUpdateGeoFeatures(
         'text-padding': 2,
       },
       paint: {
-        'text-color': GEO_DARK,
-        'text-halo-color': GEO_STROKE,
-        'text-halo-width': 1.35,
-        'text-halo-blur': 0.4,
+        'text-color': '#f8fafc',
+        'text-halo-color': '#2f374a',
+        'text-halo-width': 1.25,
+        'text-halo-blur': 0.5,
       },
     })
     return
   }
 
   if (geoFeatures) {
-    const picked = pickGeoLabelFeaturesForMapView(m, geoFeatures)
-    ;(shown as maplibregl.GeoJSONSource).setData(picked as GeoJSON.GeoJSON)
+    ;(main as maplibregl.GeoJSONSource).setData(geoFeatures)
+    const labelSrc = m.getSource(GEO_LABEL_SOURCE) as maplibregl.GeoJSONSource
+    labelSrc.setData(pickGeoLabelFeaturesForMapView(m, geoFeatures))
   } else {
     if (m.getLayer('geo-feature-labels')) m.removeLayer('geo-feature-labels')
     if (m.getLayer('geo-feature-points')) m.removeLayer('geo-feature-points')
-    m.removeSource(GEO_SHOWN)
+    m.removeSource(GEO_LABEL_SOURCE)
+    m.removeSource(GEO_SOURCE)
   }
 }
 
@@ -197,6 +230,8 @@ export function FlightMap({
   followMode,
   planeTrackBearingDeg,
   geoFeatures,
+  rasterMapId,
+  hideBasemapLabels,
   onFollowModeChange,
 }: FlightMapProps) {
   const el = useRef<HTMLDivElement | null>(null)
@@ -204,6 +239,8 @@ export function FlightMap({
   const marker = useRef<maplibregl.Marker | null>(null)
   const userAnchorRef = useRef<[number, number]>(initialOfflineCenter)
   const lastSessionKeyRef = useRef(mapSessionKey)
+  const rasterMapIdRef = useRef(rasterMapId)
+  rasterMapIdRef.current = rasterMapId
   /** Online: after user pans/zooms the map, do not snap back to plane on the next prop-driven jumpTo. */
   const userOverrideViewRef = useRef(false)
   const [err, setErr] = useState<string | null>(null)
@@ -232,7 +269,7 @@ export function FlightMap({
       maplibregl.addProtocol(OFF, async (req) => {
         const t = parseOfftmUrl(req.url)
         if (!t) throw new Error('offtm url')
-        const data = await getTileData(t)
+        const data = await getTileData(t, rasterMapIdRef.current)
         if (!data) {
           return {
             data: await missingOfflineTilePng(),
@@ -243,70 +280,143 @@ export function FlightMap({
       })
     }
 
-    const tiles = useOfflineRaster ? [`${OFF}://{z}/{x}/{y}`] : [appMapTileUrlTemplate()]
+    const tiles = useOfflineRaster
+      ? [`${OFF}://{z}/{x}/{y}`]
+      : [appMapTileUrlTemplate(rasterMapId)]
+    const useVectorHideLabels =
+      !useOfflineRaster && hideBasemapLabels
     setErr(null)
 
     const startCenter: [number, number] =
       useOfflineRaster && bbox != null ? initialOfflineCenter : center
 
-    const m = new maplibregl.Map({
-      container: el.current,
-      style: {
-        version: 8,
-        glyphs: 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf',
-        sources:
-          tiles.length > 0
-            ? {
-                basemap: {
-                  type: 'raster',
-                  tiles,
-                  tileSize: 256,
-                  attribution: useOfflineRaster
-                    ? 'Offline tiles (MapTiler / OSM, cached locally)'
-                    : 'MapTiler / OSM',
-                },
-              }
-            : {},
-        layers:
-          tiles.length > 0
-            ? [
-                {
-                  id: 'basemap',
-                  type: 'raster',
-                  source: 'basemap',
-                  minzoom: 0,
-                  maxzoom: 14,
-                },
-              ]
-            : [],
-      },
-      center: startCenter,
-      zoom,
-    })
-    m.addControl(new maplibregl.NavigationControl(), 'top-right')
-    m.once('load', () => {
-      setMapReady(true)
-    })
-    map.current = m
+    const elNode = el.current
+    let cancelled = false
+
+    const attachVectorFromFetch = async () => {
+      try {
+        const res = await fetch(appMapVectorStyleUrl(rasterMapId), {
+          cache: 'no-store',
+        })
+        if (cancelled) return
+        if (!res.ok) {
+          setErr(
+            res.status === 503
+              ? 'Map style: set VITE_MAPTILER_API_KEY in .env and restart the dev server.'
+              : 'Failed to load map style from server.',
+          )
+          return
+        }
+        const styleJson: unknown = await res.json()
+        ensureVectorStyleGlyphsForMapLibre(styleJson)
+        // Cleanup can set `cancelled` while awaiting `res.json()`.
+        // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- false positive: async gap
+        if (cancelled) return
+        const m = new maplibregl.Map({
+          container: elNode,
+          style: styleJson as StyleSpecification,
+          transformRequest: transformMapTilerForProxy,
+          center: startCenter,
+          zoom,
+        })
+        m.addControl(new maplibregl.NavigationControl(), 'top-right')
+        m.once('load', () => {
+          if (cancelled) return
+          hideBasemapTextSymbolLayers(m)
+          setMapReady(true)
+        })
+        map.current = m
+      } catch (e) {
+        if (!cancelled) {
+          setErr(
+            e instanceof Error ? e.message : 'Failed to load map style.',
+          )
+        }
+      }
+    }
+
+    if (useVectorHideLabels) {
+      void attachVectorFromFetch()
+    } else {
+      const m = new maplibregl.Map({
+        container: elNode,
+        style: {
+          version: 8,
+          glyphs: 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf',
+          sources:
+            tiles.length > 0
+              ? {
+                  basemap: {
+                    type: 'raster',
+                    tiles,
+                    tileSize: 256,
+                    attribution: useOfflineRaster
+                      ? 'Offline tiles (MapTiler / OSM, cached locally)'
+                      : 'MapTiler / OSM',
+                  },
+                }
+              : {},
+          layers:
+            tiles.length > 0
+              ? [
+                  {
+                    id: 'basemap',
+                    type: 'raster',
+                    source: 'basemap',
+                    minzoom: 0,
+                    maxzoom: 14,
+                  },
+                ]
+              : [],
+        },
+        center: startCenter,
+        zoom,
+      })
+      m.addControl(new maplibregl.NavigationControl(), 'top-right')
+      m.once('load', () => {
+        setMapReady(true)
+      })
+      map.current = m
+    }
+
     return () => {
+      cancelled = true
       setMapReady(false)
       marker.current?.remove()
       marker.current = null
-      m.remove()
+      map.current?.remove()
       map.current = null
       if (useOfflineRaster) maplibregl.removeProtocol(OFF)
     }
-  }, [useOfflineRaster, mapSessionKey])
+  }, [useOfflineRaster, mapSessionKey, rasterMapId, hideBasemapLabels])
 
   useEffect(() => {
     const m = map.current
     if (!m || !mapReady) return
+    if (!m.isStyleLoaded()) {
+      const onLoad = () => {
+        if (map.current === m) addOrUpdateRoute(m, line)
+      }
+      m.once('load', onLoad)
+      return () => {
+        m.off('load', onLoad)
+      }
+    }
     addOrUpdateRoute(m, line)
   }, [line, mapReady])
 
   useEffect(() => {
     const m = map.current
     if (!m || !mapReady) return
+    if (!m.isStyleLoaded()) {
+      const onLoad = () => {
+        if (map.current === m) addOrUpdateGeoFeatures(m, geoFeatures)
+      }
+      m.once('load', onLoad)
+      return () => {
+        m.off('load', onLoad)
+      }
+    }
     addOrUpdateGeoFeatures(m, geoFeatures)
   }, [geoFeatures, mapReady])
 
@@ -314,14 +424,15 @@ export function FlightMap({
     const m = map.current
     if (!m || !mapReady) return
     const refreshLabelSubset = () => {
-      const src = m.getSource(GEO_SHOWN) as maplibregl.GeoJSONSource | undefined
-      if (!src) return
+      const labelSrc = m.getSource(GEO_LABEL_SOURCE)
+      if (!labelSrc) return
+      const geoLabelSource = labelSrc as maplibregl.GeoJSONSource
       const fc = geoFeaturesRef.current
       if (!fc) {
-        src.setData({ type: 'FeatureCollection', features: [] })
+        geoLabelSource.setData({ type: 'FeatureCollection', features: [] })
         return
       }
-      src.setData(pickGeoLabelFeaturesForMapView(m, fc) as GeoJSON.GeoJSON)
+      geoLabelSource.setData(pickGeoLabelFeaturesForMapView(m, fc))
     }
     m.on('moveend', refreshLabelSubset)
     m.on('zoomend', refreshLabelSubset)
@@ -348,18 +459,34 @@ export function FlightMap({
     // Depend on numeric coords, not the `center` tuple identity — parent often passes a new
     // array each render (same values), which would reset the map after every pan.
     m.jumpTo({ center: [centerLng, centerLat], zoom, bearing: mapBearing })
-  }, [centerLng, centerLat, zoom, mapBearing, mapReady, useOfflineRaster, followMode])
+  }, [
+    centerLng,
+    centerLat,
+    zoom,
+    mapBearing,
+    mapReady,
+    useOfflineRaster,
+    followMode,
+  ])
 
   /** Follow mode: keep map centered on the plane (single bbox nudge when offline / bbox set). */
   useEffect(() => {
     const m = map.current
     if (!m || !mapReady || !followMode) return
-    if (plane == null || Number.isNaN(planeLng) || Number.isNaN(planeLat)) return
+    if (plane == null || Number.isNaN(planeLng) || Number.isNaN(planeLat))
+      return
     const z = useOfflineRaster ? Math.max(zoom, m.getMinZoom()) : zoom
     let L = planeLng
     let φ = planeLat
     if (bbox) {
-      ;[L, φ] = centerOnPlaneWithBBoxNudge(m, planeLng, planeLat, bbox, z, mapBearing)
+      ;[L, φ] = centerOnPlaneWithBBoxNudge(
+        m,
+        planeLng,
+        planeLat,
+        bbox,
+        z,
+        mapBearing,
+      )
     }
     m.jumpTo({ center: [L, φ], zoom: z, bearing: mapBearing })
     if (useOfflineRaster) userAnchorRef.current = [L, φ]
@@ -380,7 +507,11 @@ export function FlightMap({
   useEffect(() => {
     const m = map.current
     if (!m || !mapReady || useOfflineRaster) return
-    const onMoveEnd = (e: maplibregl.MapLibreEvent<MouseEvent | TouchEvent | WheelEvent | undefined>) => {
+    const onMoveEnd = (
+      e: maplibregl.MapLibreEvent<
+        MouseEvent | TouchEvent | WheelEvent | undefined
+      >,
+    ) => {
       if (e.originalEvent != null) userOverrideViewRef.current = true
     }
     m.on('moveend', onMoveEnd)
@@ -515,7 +646,9 @@ export function FlightMap({
   return (
     <div className="relative w-full">
       {err && (
-        <p className="bg-amber-500/20 text-amber-100 m-0 rounded-t-xl px-3 py-2 text-sm">{err}</p>
+        <p className="bg-amber-500/20 text-amber-100 m-0 rounded-t-xl px-3 py-2 text-sm">
+          {err}
+        </p>
       )}
       <div
         ref={el}
@@ -561,7 +694,7 @@ export function FlightMap({
               strokeWidth="1.75"
             />
             <g
-              transform={`translate(28,28) rotate(${followMode ? 0 : planeTrackBearingDeg ?? 0}) scale(0.44)`}
+              transform={`translate(28,28) rotate(${followMode ? 0 : (planeTrackBearingDeg ?? 0)}) scale(0.44)`}
             >
               <path
                 d={PLANE_PATH_D}

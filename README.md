@@ -1,6 +1,3 @@
-<<<<<<< HEAD
-# travel-mode
-=======
 # travelmode.live
 
 Offline-first PWA: enter a flight + date, sync track data (Flightradar24), download MapTiler raster
@@ -19,8 +16,10 @@ pnpm dev
 
 Copy `.env.example` to `.env`, set `DATABASE_URL` (e.g. local Postgres on port 5432) and
 `FLIGHTRADAR24_API_TOKEN` from the [FR24 API portal](https://fr24api.flightradar24.com). For
-development without FR24, set `ALLOW_MOCK_FR24=1` and omit the token. Set `VITE_MAPTILER_KEY` or `MAPTILER_API_KEY` for the server tile proxy (avoids MapTiler 403s from
-browser referrer rules). Optional: `pnpm worker` in another terminal to process
+development without FR24, set `ALLOW_MOCK_FR24=1` and omit the token. Set `VITE_MAPTILER_API_KEY`
+for the server tile proxy at `/api/map-tiles/...` (avoids MapTiler 403s from browser referrer rules).
+Set `BETTER_AUTH_URL` to the same origin you use in the browser (e.g. `http://localhost:3020` for
+`pnpm dev`) so OAuth state cookies validate. Optional: `pnpm worker` in another terminal to process
 `sync_flight` jobs if the API process does not run the worker.
 
 ---
@@ -229,4 +228,3 @@ Files prefixed with `demo` can be safely deleted. They are there to provide a st
 You can learn more about all of the offerings from TanStack in the [TanStack documentation](https://tanstack.com).
 
 For TanStack Start specific documentation, visit [TanStack Start](https://tanstack.com/start).
->>>>>>> 101dcb4 (initial commit)
