@@ -1,6 +1,7 @@
-import type { CatalogAirport } from './flight-data'
+import type { CatalogAirport, CatalogCity, IsoCountryCode } from './flight-data'
 import { catalogAirportFacilityRank } from './flight-data'
 import { parseCsv } from './csv-parse'
+import { resolveCatalogCityCode } from './catalog-city-resolve'
 
 /** Types dropped from the catalog (OurAirports `type`). */
 const EXCLUDED_TYPES = new Set([
@@ -76,15 +77,55 @@ function rowToRaw(cols: string[], idx: Record<string, number>): RawRow | null {
   }
 }
 
+type CityVoteState = {
+  country: IsoCountryCode
+  /** municipality string → count */
+  nameVotes: Map<string, number>
+}
+
+function pickCityName(votes: Map<string, number>): string {
+  let best = ''
+  let bestN = -1
+  for (const [name, n] of votes) {
+    if (!name.trim()) continue
+    if (n > bestN || (n === bestN && name.localeCompare(best) < 0)) {
+      best = name
+      bestN = n
+    }
+  }
+  return best || '—'
+}
+
+function catalogCitiesFromVotes(
+  byCode: Map<string, CityVoteState>,
+): CatalogCity[] {
+  return [...byCode.entries()]
+    .map(
+      ([code, st]): CatalogCity => ({
+        code,
+        countryCode: st.country,
+        name: pickCityName(st.nameVotes),
+      }),
+    )
+    .sort((a, b) => a.code.localeCompare(b.code))
+}
+
+export type AirportCsvImportResult = {
+  airports: CatalogAirport[]
+  cities: CatalogCity[]
+}
+
 /**
- * Parse OurAirports-style `airports.csv` text into normalized `Airport` records.
- * Keeps rows with 3-letter IATA, non-excluded types, valid ISO country, deduped by IATA
- * (prefers larger facility types when duplicates exist).
+ * Parse OurAirports-style `airports.csv` text into normalized catalog rows plus
+ * bundled {@link CatalogCity} rows (one per distinct IATA city code after resolution).
  */
-export function airportsFromOurAirportsCsv(text: string): CatalogAirport[] {
+export function airportsFromOurAirportsCsv(
+  text: string,
+  fileOverrides?: Record<string, string>,
+): AirportCsvImportResult {
   const bomStripped = text.replace(/^\uFEFF/, '')
   const rows = parseCsv(bomStripped.trimEnd())
-  if (rows.length < 2) return []
+  if (rows.length < 2) return { airports: [], cities: [] }
 
   const header = rows[0].map((c) => c.trim())
   const idx = {
@@ -98,19 +139,34 @@ export function airportsFromOurAirportsCsv(text: string): CatalogAirport[] {
   }
 
   const best = new Map<string, { rank: number; airport: CatalogAirport }>()
+  const cityVotes = new Map<string, CityVoteState>()
 
   for (let r = 1; r < rows.length; r++) {
     const cols = rows[r]
     const raw = rowToRaw(cols, idx)
     if (!raw) continue
 
+    const cityCode = resolveCatalogCityCode(raw.iata, fileOverrides)
+
+    let st = cityVotes.get(cityCode)
+    if (!st) {
+      st = { country: raw.isoCountry as IsoCountryCode, nameVotes: new Map() }
+      cityVotes.set(cityCode, st)
+    }
+    if (st.country === raw.isoCountry) {
+      const mun = raw.municipality.trim() || raw.name.trim()
+      if (mun) {
+        st.nameVotes.set(mun, (st.nameVotes.get(mun) ?? 0) + 1)
+      }
+    }
+
     const airport: CatalogAirport = {
       displayName: buildAirportDisplayName(raw.name, raw.iata),
       airportType: raw.type,
       iata: raw.iata,
       name: raw.name,
-      city: raw.municipality,
-      country: raw.isoCountry,
+      cityCode,
+      country: raw.isoCountry as IsoCountryCode,
       lat: raw.lat,
       lon: raw.lon,
     }
@@ -122,13 +178,24 @@ export function airportsFromOurAirportsCsv(text: string): CatalogAirport[] {
     }
   }
 
-  return [...best.values()]
+  const airports = [...best.values()]
     .map((x) => x.airport)
     .sort((a, b) => a.iata.localeCompare(b.iata))
+
+  return {
+    airports,
+    cities: catalogCitiesFromVotes(cityVotes),
+  }
 }
 
 export function airportsToJsonBlob(airports: CatalogAirport[]): Blob {
   return new Blob([`${JSON.stringify(airports, null, 2)}\n`], {
+    type: 'application/json',
+  })
+}
+
+export function citiesToJsonBlob(cities: CatalogCity[]): Blob {
+  return new Blob([`${JSON.stringify(cities, null, 2)}\n`], {
     type: 'application/json',
   })
 }

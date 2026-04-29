@@ -52,4 +52,8 @@ IndexedDB for airlines was bumped to **version 2** when this schema replaced the
 
 ## Cities
 
-*(Placeholder for the same pattern: source, admin route, `public/data/cities.json`, IDB + client loader.)*
+- **Shape:** `CatalogCity` in `#/lib/flight-data` — `{ code, name, countryCode }` (bundled autocomplete; optional coordinates are only on schedule/API `City` rows).
+- **Admin:** `/admin/airports` CSV import produces **`cities.json`** alongside `airports.json` (vote city display names from OurAirports municipalities per resolved city code).
+- **Bundle:** `public/data/cities.json` → `/data/cities.json`
+- **Overrides:** `public/data/air-to-city-code.json` merges on top of `#/lib/airport-metro-city-codes` via `#/lib/catalog-city-resolve`.
+- **Client:** `#/lib/cities-client` + `#/lib/cities-idb` (same cache pattern as airports).

@@ -27,8 +27,37 @@ import {
   getFlightSchedules,
   refTtlMs,
 } from '../airlabs/resolve-schedule'
+import { airportIatasForCityCode } from '../catalog-airports'
 
 const flightScheduleRoutes = new Hono()
+
+function parseTripleLoc(raw: string | undefined): string | undefined {
+  if (!raw) return undefined
+  const x = raw.trim().toUpperCase()
+  return /^[A-Z0-9]{3}$/.test(x) ? x : undefined
+}
+
+/** Airports matching a travel-city code from the bundled catalog (fallback: treat code as airport). */
+function expandCityToAirports(cityToken: string): string[] {
+  const xs = airportIatasForCityCode(cityToken)
+  return xs.length > 0 ? xs : [cityToken]
+}
+
+function expandDepArrSide(
+  rawAirport?: string,
+  rawCity?: string,
+):
+  | { ok: false; error: string }
+  | { ok: true; codes: string[] | undefined } {
+  const airport = parseTripleLoc(rawAirport)
+  const city = parseTripleLoc(rawCity)
+  if (airport && city) {
+    return { ok: false, error: 'Use airport or city for this side, not both.' }
+  }
+  if (city) return { ok: true, codes: expandCityToAirports(city) }
+  if (airport) return { ok: true, codes: [airport] }
+  return { ok: true, codes: undefined }
+}
 const airportRoutes = new Hono()
 const airlineRoutes = new Hono()
 const cityRoutes = new Hono()
@@ -86,16 +115,28 @@ flightScheduleRoutes.get('/', async (c) => {
   const date = c.req.query('date')?.trim()
   const rawDep = c.req.query('dep_iata')?.trim()
   const rawArr = c.req.query('arr_iata')?.trim()
-  const dep_iata =
-    rawDep && /^[A-Z]{3}$/i.test(rawDep) ? rawDep.toUpperCase() : undefined
-  const arr_iata =
-    rawArr && /^[A-Z]{3}$/i.test(rawArr) ? rawArr.toUpperCase() : undefined
+  const rawDepCity = c.req.query('dep_city')?.trim()
+  const rawArrCity = c.req.query('arr_city')?.trim()
 
-  if (!fn && !dep_iata && !arr_iata) {
+  const depSide = expandDepArrSide(rawDep, rawDepCity)
+  const arrSide = expandDepArrSide(rawArr, rawArrCity)
+  if (!depSide.ok) {
+    return c.json({ error: depSide.error }, 400)
+  }
+  if (!arrSide.ok) {
+    return c.json({ error: arrSide.error }, 400)
+  }
+
+  const depList = depSide.codes
+  const arrList = arrSide.codes
+  const hasDepSide = Boolean(depList?.length)
+  const hasArrSide = Boolean(arrList?.length)
+
+  if (!fn?.length && !hasDepSide && !hasArrSide) {
     return c.json(
       {
         error:
-          'Provide flightNumber (optional with airports) and/or dep_iata and/or arr_iata.',
+          'Provide flightNumber (optional with airports/cities) and/or departure and/or arrival (airports via dep_iata/arr_iata or travel cities via dep_city/arr_city).',
       },
       400,
     )
@@ -109,7 +150,7 @@ flightScheduleRoutes.get('/', async (c) => {
   /** Set when `flightNumber` parses as a valid IATA flight id; used for airline API filters. */
   const flightParsed = parsed && parsed.ok ? parsed : null
 
-  if (!dep_iata && !arr_iata && date != null && date.length > 0) {
+  if (!hasDepSide && !hasArrSide && date != null && date.length > 0) {
     const d = new Date(`${date.slice(0, 10)}T00:00:00.000Z`)
     if (Number.isNaN(d.getTime())) {
       return c.json({ error: 'invalid date' }, 400)
@@ -119,13 +160,11 @@ flightScheduleRoutes.get('/', async (c) => {
   try {
     const fetchedAt = new Date().toISOString()
 
-    let schedules: FlightSchedule[]
-
-    if (dep_iata && arr_iata) {
+    async function depArrPair(depAP: string, arrAP: string): Promise<FlightSchedule[]> {
       const flightIata = flightParsed?.flightIata
       const liveRows = await fetchFlightsDepArr(
-        dep_iata,
-        arr_iata,
+        depAP,
+        arrAP,
         flightIata
           ? { flightIata, limit: 100 }
           : { limit: 100 },
@@ -140,8 +179,8 @@ flightScheduleRoutes.get('/', async (c) => {
 
       const timetableRows =
         flightIata != null
-          ? await fetchSchedulesDepArrFlight(dep_iata, arr_iata, flightIata)
-          : await fetchSchedulesDepArrNoFlight(dep_iata, arr_iata)
+          ? await fetchSchedulesDepArrFlight(depAP, arrAP, flightIata)
+          : await fetchSchedulesDepArrNoFlight(depAP, arrAP)
 
       const fromSchedules = timetableRows
         .map((r) => {
@@ -151,40 +190,64 @@ flightScheduleRoutes.get('/', async (c) => {
         })
         .filter((x): x is FlightSchedule => x != null)
 
-      schedules = dedupeSchedulesByLegAndTime([
-        ...fromLive,
-        ...fromSchedules,
-      ])
-    } else if (dep_iata) {
+      return [...fromLive, ...fromSchedules]
+    }
+
+    async function schedulesForDep(depAP: string): Promise<FlightSchedule[]> {
       const raw = flightParsed
-        ? await fetchSchedulesDepFlight(dep_iata, flightParsed.flightIata)
-        : await fetchSchedulesDepOnly(dep_iata)
-      schedules = dedupeSchedulesByLegAndTime(
-        raw
-          .map((r) => {
-            const lab = flightParsed?.flightIata ?? flightLabelForScheduleRow(r)
-            if (!lab) return null
-            return airlabsScheduleRowToFlightSchedule(r, fetchedAt, lab)
-          })
-          .filter((x): x is FlightSchedule => x != null),
-      )
-    } else if (arr_iata) {
+        ? await fetchSchedulesDepFlight(depAP, flightParsed.flightIata)
+        : await fetchSchedulesDepOnly(depAP)
+      return raw
+        .map((r) => {
+          const lab = flightParsed?.flightIata ?? flightLabelForScheduleRow(r)
+          if (!lab) return null
+          return airlabsScheduleRowToFlightSchedule(r, fetchedAt, lab)
+        })
+        .filter((x): x is FlightSchedule => x != null)
+    }
+
+    async function schedulesForArr(arrAP: string): Promise<FlightSchedule[]> {
       const raw = flightParsed
-        ? await fetchSchedulesArrFlight(arr_iata, flightParsed.flightIata)
-        : await fetchSchedulesArrOnly(arr_iata)
-      schedules = dedupeSchedulesByLegAndTime(
-        raw
-          .map((r) => {
-            const lab = flightParsed?.flightIata ?? flightLabelForScheduleRow(r)
-            if (!lab) return null
-            return airlabsScheduleRowToFlightSchedule(r, fetchedAt, lab)
-          })
-          .filter((x): x is FlightSchedule => x != null),
-      )
+        ? await fetchSchedulesArrFlight(arrAP, flightParsed.flightIata)
+        : await fetchSchedulesArrOnly(arrAP)
+      return raw
+        .map((r) => {
+          const lab = flightParsed?.flightIata ?? flightLabelForScheduleRow(r)
+          if (!lab) return null
+          return airlabsScheduleRowToFlightSchedule(r, fetchedAt, lab)
+        })
+        .filter((x): x is FlightSchedule => x != null)
+    }
+
+    let schedules: FlightSchedule[]
+
+    if (hasDepSide && hasArrSide && depList && arrList) {
+      const acc: FlightSchedule[] = []
+      for (const dep of depList) {
+        for (const arr of arrList) {
+          acc.push(...(await depArrPair(dep, arr)))
+        }
+      }
+      schedules = dedupeSchedulesByLegAndTime(acc)
+    } else if (hasDepSide && depList) {
+      const acc: FlightSchedule[] = []
+      for (const dep of depList) {
+        acc.push(...(await schedulesForDep(dep)))
+      }
+      schedules = dedupeSchedulesByLegAndTime(acc)
+    } else if (hasArrSide && arrList) {
+      const acc: FlightSchedule[] = []
+      for (const arr of arrList) {
+        acc.push(...(await schedulesForArr(arr)))
+      }
+      schedules = dedupeSchedulesByLegAndTime(acc)
     } else {
       if (!fn) {
         return c.json(
-          { error: 'flightNumber is required when airports are not specified' },
+          {
+            error:
+              'flightNumber is required when departure and arrival are not specified',
+          },
           400,
         )
       }

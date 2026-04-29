@@ -3,15 +3,17 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Check, Loader2, Timer } from 'lucide-react'
 import { toast } from 'sonner'
 import { authClient } from '../../../lib/auth-client'
-import type { AirportSearchDoc } from '#/lib/airport-autocomplete'
-import { buildAirportSearchDocs } from '#/lib/airport-autocomplete'
 import { ensureAirlinesLoaded } from '#/lib/airlines-client'
 import { airportsList, ensureAirportsLoaded } from '#/lib/airports-client'
-import { ensureCountriesLoaded } from '#/lib/countries-client'
+import { citiesList, ensureCitiesLoaded } from '#/lib/cities-client'
+import { countriesByCode, ensureCountriesLoaded } from '#/lib/countries-client'
+import { buildLocationSearchDocs } from '#/lib/location-autocomplete'
+import type { LocationSearchDoc } from '#/lib/location-autocomplete'
 import { AirportAutocompleteInput } from '../../../components/AirportAutocompleteInput'
+import type { LocationSelection } from '../../../components/AirportAutocompleteInput'
 import { MapPackStatusIndicator } from '../../../components/MapPackStatusIndicator'
 import { cn } from '../../../lib/cn'
-import type { CatalogAirport, FlightSchedule } from '../../../lib/flight-data'
+import type { FlightSchedule } from '../../../lib/flight-data'
 
 type MyFlightsSearchParams = {
   /** @deprecated use df/dt */
@@ -19,8 +21,25 @@ type MyFlightsSearchParams = {
   df?: string
   dt?: string
   fn?: string
+  /** IATA airport code or travel city code */
   from?: string
   to?: string
+  /** Present when {@link MyFlightsSearchParams.from} is a metropolitan / city code */
+  fromKind?: 'city' | 'airport'
+  /** Present when {@link MyFlightsSearchParams.to} is a metropolitan / city code */
+  toKind?: 'city' | 'airport'
+}
+
+function parseLocationCode(v: unknown): string | undefined {
+  return typeof v === 'string' && /^[A-Za-z0-9]{3}$/.test(v)
+    ? v.toUpperCase()
+    : undefined
+}
+
+function parseLocationKind(v: unknown): 'airport' | 'city' | undefined {
+  if (v === 'city') return 'city'
+  if (v === 'airport') return 'airport'
+  return undefined
 }
 
 const YMD = /^\d{4}-\d{2}-\d{2}$/
@@ -92,15 +111,19 @@ export const Route = createFileRoute('/_main/my-flights/search')({
       typeof search.fn === 'string' && search.fn.trim() !== ''
         ? search.fn.trim().toUpperCase().replace(/\s+/g, '')
         : undefined
-    const from =
-      typeof search.from === 'string' && /^[A-Za-z]{3}$/.test(search.from)
-        ? search.from.toUpperCase()
-        : undefined
-    const to =
-      typeof search.to === 'string' && /^[A-Za-z]{3}$/.test(search.to)
-        ? search.to.toUpperCase()
-        : undefined
-    return { df, dt, fn, from, to }
+    const from = parseLocationCode(search.from)
+    const to = parseLocationCode(search.to)
+    const fromKind = parseLocationKind(search.fromKind)
+    const toKind = parseLocationKind(search.toKind)
+    return {
+      df,
+      dt,
+      fn,
+      from,
+      to,
+      fromKind,
+      toKind,
+    }
   },
   component: FlightSearchPage,
 })
@@ -154,19 +177,31 @@ function hasFlightInfo(hit: SearchHit): boolean {
   return Boolean(hit.originIata && hit.destIata && dep)
 }
 
+function selectionFromUrl(
+  code: string | undefined,
+  kind: 'airport' | 'city' | undefined,
+): LocationSelection | null {
+  if (!code?.trim()) return null
+  return { kind: kind === 'city' ? 'city' : 'airport', code: code.trim().toUpperCase() }
+}
+
 async function fetchFlightScheduleApi(params: {
   flightNumber?: string
   /** YYYY-MM-DD when using per-day lookups (no airport filter). */
   date?: string
   dep_iata?: string
   arr_iata?: string
+  dep_city?: string
+  arr_city?: string
 }): Promise<ScheduleApiItem[]> {
   const u = new URL('/api/flight-schedule', window.location.origin)
   const fn = params.flightNumber?.trim()
   if (fn) u.searchParams.set('flightNumber', fn)
   if (params.date) u.searchParams.set('date', params.date)
-  if (params.dep_iata) u.searchParams.set('dep_iata', params.dep_iata)
-  if (params.arr_iata) u.searchParams.set('arr_iata', params.arr_iata)
+  if (params.dep_city) u.searchParams.set('dep_city', params.dep_city)
+  else if (params.dep_iata) u.searchParams.set('dep_iata', params.dep_iata)
+  if (params.arr_city) u.searchParams.set('arr_city', params.arr_city)
+  else if (params.arr_iata) u.searchParams.set('arr_iata', params.arr_iata)
   const r = await fetch(u)
   const text = await r.text()
   if (!r.ok) {
@@ -201,8 +236,12 @@ function FlightSearchPage() {
   const [dateFrom, setDateFrom] = useState(() => urlSearch.df ?? '')
   const [dateTo, setDateTo] = useState(() => urlSearch.dt ?? '')
   const [flightNumber, setFlightNumber] = useState(() => urlSearch.fn ?? '')
-  const [originIata, setOriginIata] = useState(() => urlSearch.from ?? '')
-  const [destIata, setDestIata] = useState(() => urlSearch.to ?? '')
+  const [originSel, setOriginSel] = useState<LocationSelection | null>(() =>
+    selectionFromUrl(urlSearch.from, urlSearch.fromKind),
+  )
+  const [destSel, setDestSel] = useState<LocationSelection | null>(() =>
+    selectionFromUrl(urlSearch.to, urlSearch.toKind),
+  )
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [results, setResults] = useState<SearchHit[] | null>(null)
@@ -213,7 +252,7 @@ function FlightSearchPage() {
   const loadMoreSentinelRef = useRef<HTMLDivElement | null>(null)
   const [addingId, setAddingId] = useState<string | null>(null)
   const [addedFr24Ids, setAddedFr24Ids] = useState(() => new Set<string>())
-  const [airportDocs, setAirportDocs] = useState<AirportSearchDoc[]>([])
+  const [locationDocs, setLocationDocs] = useState<LocationSearchDoc[]>([])
   const lastBootstrapKey = useRef<string | null>(null)
 
   useEffect(() => {
@@ -221,9 +260,14 @@ function FlightSearchPage() {
       ensureAirlinesLoaded(),
       ensureCountriesLoaded(),
       ensureAirportsLoaded(),
+      ensureCitiesLoaded(),
     ]).then(() => {
-      setAirportDocs(
-        buildAirportSearchDocs([...airportsList] satisfies CatalogAirport[]),
+      setLocationDocs(
+        buildLocationSearchDocs(
+          [...airportsList],
+          [...citiesList],
+          countriesByCode,
+        ),
       )
     })
   }, [])
@@ -233,17 +277,23 @@ function FlightSearchPage() {
       dateFrom?: string
       dateTo?: string
       flightNumber?: string
-      originIata?: string
-      destIata?: string
+      originSel?: LocationSelection | null
+      destSel?: LocationSelection | null
     }) => {
       const dfVal = (overrides?.dateFrom ?? dateFrom).trim()
       const dtVal = (overrides?.dateTo ?? dateTo).trim()
       const fn = (overrides?.flightNumber ?? flightNumber).trim().toUpperCase()
-      const o = (overrides?.originIata ?? originIata).trim().toUpperCase()
-      const d = (overrides?.destIata ?? destIata).trim().toUpperCase()
-      if (!fn && !o && !d) {
+      const o = overrides?.originSel ?? originSel
+      const d = overrides?.destSel ?? destSel
+
+      const oCode = o?.code.trim().toUpperCase() ?? ''
+      const dCode = d?.code.trim().toUpperCase() ?? ''
+      const oIsCity = o?.kind === 'city'
+      const dIsCity = d?.kind === 'city'
+
+      if (!fn && !oCode && !dCode) {
         setError(
-          'Enter a flight number, or pick at least one airport (from and/or to).',
+          'Enter a flight number, or pick at least one departure or arrival (airport or city).',
         )
         return
       }
@@ -259,8 +309,10 @@ function FlightSearchPage() {
             fn: fn || undefined,
             df: dfVal || undefined,
             dt: dtVal || undefined,
-            from: o || undefined,
-            to: d || undefined,
+            from: oCode || undefined,
+            to: dCode || undefined,
+            fromKind: oIsCity ? ('city' as const) : undefined,
+            toKind: dIsCity ? ('city' as const) : undefined,
           }),
         })
       } catch {
@@ -269,13 +321,18 @@ function FlightSearchPage() {
       try {
         const { start, end } = resolveSearchRange(dfVal, dtVal)
 
-        /** AirLabs: `/flights` + `/schedules` by airport (`dep_iata` / `arr_iata`) when set. */
-        if (o || d) {
-          const raw = await fetchFlightScheduleApi({
-            ...(fn ? { flightNumber: fn } : {}),
-            ...(o ? { dep_iata: o } : {}),
-            ...(d ? { arr_iata: d } : {}),
-          })
+        if (oCode || dCode) {
+          const req: Parameters<typeof fetchFlightScheduleApi>[0] =
+            fn ? { flightNumber: fn } : {}
+          if (oCode) {
+            if (oIsCity) req.dep_city = oCode
+            else req.dep_iata = oCode
+          }
+          if (dCode) {
+            if (dIsCity) req.arr_city = dCode
+            else req.arr_iata = dCode
+          }
+          const raw = await fetchFlightScheduleApi(req)
           const inRange = filterSchedulesByUtcYmdRange(raw, start, end)
           inRange.sort((a, b) =>
             a.departure.time.localeCompare(b.departure.time),
@@ -327,7 +384,7 @@ function FlightSearchPage() {
         setLoading(false)
       }
     },
-    [dateFrom, dateTo, flightNumber, destIata, originIata, navigate],
+    [dateFrom, dateTo, flightNumber, destSel, originSel, navigate],
   )
 
   const signInReturnPath = useCallback(() => {
@@ -338,38 +395,46 @@ function FlightSearchPage() {
     if (dts) sp.set('dt', dts)
     const fn = flightNumber.trim().toUpperCase().replace(/\s+/g, '')
     if (fn) sp.set('fn', fn)
-    const o = originIata.trim().toUpperCase()
-    if (o) sp.set('from', o)
-    const dest = destIata.trim().toUpperCase()
-    if (dest) sp.set('to', dest)
+    const o = originSel?.code.trim().toUpperCase() ?? ''
+    if (o) {
+      sp.set('from', o)
+      if (originSel?.kind === 'city') sp.set('fromKind', 'city')
+    }
+    const dest = destSel?.code.trim().toUpperCase() ?? ''
+    if (dest) {
+      sp.set('to', dest)
+      if (destSel?.kind === 'city') sp.set('toKind', 'city')
+    }
     return `/my-flights/search?${sp.toString()}`
-  }, [dateFrom, dateTo, flightNumber, originIata, destIata])
+  }, [dateFrom, dateTo, flightNumber, originSel, destSel])
 
   useEffect(() => {
     const fnTrim = urlSearch.fn?.trim()
     const hasAir = !!(urlSearch.from ?? urlSearch.to)
     if (!fnTrim && !hasAir) return
-    const key = `${urlSearch.df ?? ''}|${urlSearch.dt ?? ''}|${fnTrim ?? ''}|${urlSearch.from ?? ''}|${urlSearch.to ?? ''}`
+    const key = `${urlSearch.df ?? ''}|${urlSearch.dt ?? ''}|${fnTrim ?? ''}|${urlSearch.from ?? ''}|${urlSearch.fromKind ?? ''}|${urlSearch.to ?? ''}|${urlSearch.toKind ?? ''}`
     if (lastBootstrapKey.current === key) return
     lastBootstrapKey.current = key
     setDateFrom(urlSearch.df ?? '')
     setDateTo(urlSearch.dt ?? '')
     setFlightNumber(fnTrim ?? '')
-    setOriginIata(urlSearch.from ?? '')
-    setDestIata(urlSearch.to ?? '')
+    setOriginSel(selectionFromUrl(urlSearch.from, urlSearch.fromKind))
+    setDestSel(selectionFromUrl(urlSearch.to, urlSearch.toKind))
     void executeSearch({
       dateFrom: urlSearch.df ?? '',
       dateTo: urlSearch.dt ?? '',
       flightNumber: fnTrim ?? '',
-      originIata: urlSearch.from ?? '',
-      destIata: urlSearch.to ?? '',
+      originSel: selectionFromUrl(urlSearch.from, urlSearch.fromKind),
+      destSel: selectionFromUrl(urlSearch.to, urlSearch.toKind),
     })
   }, [
     urlSearch.df,
     urlSearch.dt,
     urlSearch.fn,
     urlSearch.from,
+    urlSearch.fromKind,
     urlSearch.to,
+    urlSearch.toKind,
     executeSearch,
   ])
 
@@ -485,24 +550,24 @@ function FlightSearchPage() {
       <div className="mb-6 flex flex-col gap-4">
         <label className="flex flex-col gap-1.5 text-sm font-medium text-(--sea-ink)">
           <span>
-            Departure and arrival airport (optional) — search by city, airport
-            name, or IATA code
+            Departure and arrival (optional) — choose a city or airport; cities
+            show as “City, Country (code)”
           </span>
           <div className="flex flex-wrap items-start gap-2 sm:max-w-md">
             <AirportAutocompleteInput
-              valueIata={originIata}
-              onChangeIata={setOriginIata}
-              docs={airportDocs}
-              placeholder={"Nice, NCE, Côte d'Azur…"}
-              ariaLabel="Origin airport"
+              valueSelection={originSel}
+              onChangeSelection={setOriginSel}
+              docs={locationDocs}
+              placeholder={"Nice, STO, Côte d'Azur…"}
+              ariaLabel="Origin airport or city"
             />
             <span className="text-(--muted) shrink-0 pt-2">→</span>
             <AirportAutocompleteInput
-              valueIata={destIata}
-              onChangeIata={setDestIata}
-              docs={airportDocs}
+              valueSelection={destSel}
+              onChangeSelection={setDestSel}
+              docs={locationDocs}
               placeholder="Stockholm, ARN, Arlanda…"
-              ariaLabel="Destination airport"
+              ariaLabel="Destination airport or city"
             />
           </div>
         </label>

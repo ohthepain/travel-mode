@@ -1,9 +1,11 @@
 import { Link, createFileRoute } from '@tanstack/react-router'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { Airport } from '#/lib/airports-data'
+import type { CatalogCity } from '#/lib/flight-data'
 import {
   airportsFromOurAirportsCsv,
   airportsToJsonBlob,
+  citiesToJsonBlob,
 } from '#/lib/airports-csv'
 import { ensureAirportsLoaded, airportsList } from '#/lib/airports-client'
 
@@ -12,7 +14,10 @@ export const Route = createFileRoute('/_main/admin/airports')({
 })
 
 function AirportsAdminPage() {
-  const [imported, setImported] = useState<Airport[] | null>(null)
+  const [imported, setImported] = useState<{
+    airports: Airport[]
+    cities: CatalogCity[]
+  } | null>(null)
   const [bundled, setBundled] = useState<Airport[] | null>(null)
   const [bundleErr, setBundleErr] = useState<string | null>(null)
   const [parseErr, setParseErr] = useState<string | null>(null)
@@ -46,8 +51,8 @@ function AirportsAdminPage() {
           typeof reader.result === 'string'
             ? reader.result
             : new TextDecoder().decode(reader.result as ArrayBuffer)
-        const rows = airportsFromOurAirportsCsv(text)
-        setImported(rows)
+        const { airports, cities } = airportsFromOurAirportsCsv(text)
+        setImported({ airports, cities })
       } catch (e) {
         setParseErr(e instanceof Error ? e.message : 'Could not parse CSV')
       }
@@ -56,21 +61,27 @@ function AirportsAdminPage() {
     reader.readAsText(file, 'UTF-8')
   }, [])
 
-  const shown = imported ?? bundled ?? []
+  const shown = imported?.airports ?? bundled ?? []
   const headerNote = imported
     ? `Preview from ${fileName ?? 'CSV'} (${shown.length} airports)`
     : `Airports in public bundle (${shown.length})`
 
-  const downloadHref = useMemo(() => {
-    if (!imported?.length) return null
-    return URL.createObjectURL(airportsToJsonBlob(imported))
+  const downloadAirportsHref = useMemo(() => {
+    if (!imported?.airports.length) return null
+    return URL.createObjectURL(airportsToJsonBlob(imported.airports))
+  }, [imported])
+
+  const downloadCitiesHref = useMemo(() => {
+    if (!imported?.cities.length) return null
+    return URL.createObjectURL(citiesToJsonBlob(imported.cities))
   }, [imported])
 
   useEffect(() => {
     return () => {
-      if (downloadHref) URL.revokeObjectURL(downloadHref)
+      if (downloadAirportsHref) URL.revokeObjectURL(downloadAirportsHref)
+      if (downloadCitiesHref) URL.revokeObjectURL(downloadCitiesHref)
     }
-  }, [downloadHref])
+  }, [downloadAirportsHref, downloadCitiesHref])
 
   return (
     <main className="page-wrap px-4 py-8">
@@ -94,12 +105,16 @@ function AirportsAdminPage() {
             airports.csv
           </code>{' '}
           export. Only rows with a 3-letter IATA code and allowed facility types are kept.
-          Commit the downloaded file as{' '}
+          Commit the downloaded files as{' '}
           <code className="rounded bg-[var(--chip-bg)] px-1.5 py-0.5 text-xs">
             public/data/airports.json
           </code>{' '}
-          (served at <code className="text-xs">/data/airports.json</code>). The app caches it in
-          IndexedDB after the first successful fetch.
+          and{' '}
+          <code className="rounded bg-[var(--chip-bg)] px-1.5 py-0.5 text-xs">
+            public/data/cities.json
+          </code>{' '}
+          (served at <code className="text-xs">/data/…</code>). The app caches them in IndexedDB
+          after the first successful fetch.
         </p>
 
         <div className="mb-4 flex flex-wrap items-center gap-3">
@@ -119,13 +134,22 @@ function AirportsAdminPage() {
           >
             Reload bundle
           </button>
-          {imported && imported.length > 0 && downloadHref ? (
+          {imported && imported.airports.length > 0 && downloadAirportsHref ? (
             <a
-              href={downloadHref}
+              href={downloadAirportsHref}
               download="airports.json"
               className="rounded-lg border border-[var(--sea-accent)] bg-[var(--sea-accent)]/10 px-4 py-2 text-sm font-medium text-[var(--sea-accent)] no-underline"
             >
               Download airports.json
+            </a>
+          ) : null}
+          {imported && imported.cities.length > 0 && downloadCitiesHref ? (
+            <a
+              href={downloadCitiesHref}
+              download="cities.json"
+              className="rounded-lg border border-[var(--sea-accent)] bg-[var(--sea-accent)]/10 px-4 py-2 text-sm font-medium text-[var(--sea-accent)] no-underline"
+            >
+              Download cities.json
             </a>
           ) : null}
         </div>
@@ -150,7 +174,7 @@ function AirportsAdminPage() {
                 <th className="px-2 py-2 font-medium text-[var(--sea-ink)]">IATA</th>
                 <th className="px-2 py-2 font-medium text-[var(--sea-ink)]">Type</th>
                 <th className="px-2 py-2 font-medium text-[var(--sea-ink)]">Display</th>
-                <th className="px-2 py-2 font-medium text-[var(--sea-ink)]">City</th>
+                <th className="px-2 py-2 font-medium text-[var(--sea-ink)]">City code</th>
                 <th className="px-2 py-2 font-medium text-[var(--sea-ink)]">Country</th>
                 <th className="px-2 py-2 font-medium text-[var(--sea-ink)]">Lat</th>
                 <th className="px-2 py-2 font-medium text-[var(--sea-ink)]">Lon</th>
@@ -165,7 +189,7 @@ function AirportsAdminPage() {
                   <td className="px-2 py-1.5 font-mono text-xs">{a.iata}</td>
                   <td className="px-2 py-1.5 font-mono text-xs">{a.airportType}</td>
                   <td className="px-2 py-1.5 text-[var(--sea-ink-soft)]">{a.displayName}</td>
-                  <td className="px-2 py-1.5 text-[var(--sea-ink-soft)]">{a.city}</td>
+                  <td className="px-2 py-1.5 font-mono text-xs">{a.cityCode}</td>
                   <td className="px-2 py-1.5 font-mono text-xs">{a.country}</td>
                   <td className="px-2 py-1.5 font-mono text-xs">{a.lat.toFixed(4)}</td>
                   <td className="px-2 py-1.5 font-mono text-xs">{a.lon.toFixed(4)}</td>

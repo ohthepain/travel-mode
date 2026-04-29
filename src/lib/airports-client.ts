@@ -1,4 +1,6 @@
 import type { Airport } from './airports-data'
+import { resolveCatalogCityCode } from './catalog-city-resolve'
+import { airToCityOverrideMap, ensureAirToCityOverridesLoaded } from './catalog-air-to-city-overrides'
 import { getCachedAirports, putCachedAirports } from './airports-idb'
 
 export const airportsByIata = new Map<string, Airport>()
@@ -15,7 +17,11 @@ function applyDataset(airports: Airport[]) {
   }
 }
 
-export function parseAirportsJson(data: unknown): Airport[] {
+export function parseAirportsJson(
+  data: unknown,
+  overrides?: Record<string, string>,
+): Airport[] {
+  const ov = overrides ?? airToCityOverrideMap()
   if (!Array.isArray(data)) return []
   const parsed: Airport[] = []
   for (const x of data) {
@@ -23,7 +29,15 @@ export function parseAirportsJson(data: unknown): Airport[] {
     const o = x as Record<string, unknown>
     const iata = o.iata
     const name = o.name
-    const city = o.city
+    const explicit =
+      typeof o.cityCode === 'string' ? o.cityCode.trim().toUpperCase() : ''
+    const cityCodeResolved =
+      explicit && /^[A-Z0-9]{3}$/.test(explicit)
+        ? explicit
+        : resolveCatalogCityCode(
+            typeof iata === 'string' ? iata : '',
+            ov,
+          )
     const country = o.country
     const displayName = o.displayName
     const airportType =
@@ -33,7 +47,6 @@ export function parseAirportsJson(data: unknown): Airport[] {
     if (
       typeof iata !== 'string' ||
       typeof name !== 'string' ||
-      typeof city !== 'string' ||
       typeof country !== 'string' ||
       typeof displayName !== 'string' ||
       typeof lat !== 'number' ||
@@ -44,7 +57,7 @@ export function parseAirportsJson(data: unknown): Airport[] {
     parsed.push({
       iata,
       name,
-      city,
+      cityCode: cityCodeResolved,
       country,
       displayName,
       airportType,
@@ -62,10 +75,13 @@ export function parseAirportsJson(data: unknown): Airport[] {
 export function ensureAirportsLoaded(): Promise<void> {
   if (loadPromise) return loadPromise
   loadPromise = (async () => {
+    await ensureAirToCityOverridesLoaded()
+    const ov = airToCityOverrideMap()
+
     try {
       const cached = await getCachedAirports()
       if (cached !== null) {
-        applyDataset(cached)
+        applyDataset(parseAirportsJson(cached as unknown, ov))
       }
 
       const r = await fetch('/data/airports.json', { cache: 'no-cache' })
@@ -74,7 +90,7 @@ export function ensureAirportsLoaded(): Promise<void> {
         return
       }
       const data = (await r.json()) as unknown
-      const parsed = parseAirportsJson(data)
+      const parsed = parseAirportsJson(data, ov)
       applyDataset(parsed)
       await putCachedAirports(parsed)
     } catch {

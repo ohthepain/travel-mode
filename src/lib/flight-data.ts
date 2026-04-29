@@ -17,8 +17,19 @@ export type City = {
 }
 
 /**
+ * Static city rows bundled for autocomplete (`public/data/cities.json`).
+ * Narrower than schedule/API {@link City} — no coordinates required client-side for labels.
+ */
+export type CatalogCity = {
+  code: IataCityCode
+  name: string
+  countryCode: IsoCountryCode
+}
+
+/**
  * Static airport rows from OurAirports-derived JSON (`public/data/airports.json`).
  * Distinct from schedule/API {@link Airport}.
+ * {@link resolveCatalogCityCode} explains how `cityCode` is chosen.
  */
 export type CatalogAirport = {
   displayName: string
@@ -30,7 +41,8 @@ export type CatalogAirport = {
   /** IATA location code */
   iata: string
   name: string
-  city: string
+  /** Metropolitan / IATA travel city code — see {@link resolveCatalogCityCode}. */
+  cityCode: IataCityCode
   country: IsoCountryCode
   lat: number
   lon: number

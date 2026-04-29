@@ -1,20 +1,26 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { cn } from '#/lib/cn'
-import type { AirportSearchDoc } from '#/lib/airport-autocomplete'
-import { filterAirportDocs } from '#/lib/airport-autocomplete'
+import type { LocationKind, LocationSearchDoc } from '#/lib/location-autocomplete'
+import { filterLocationDocs } from '#/lib/location-autocomplete'
+
+export type LocationSelection = { kind: LocationKind; code: string }
 
 type AirportAutocompleteInputProps = {
-  valueIata: string
-  onChangeIata: (iata: string) => void
-  docs: AirportSearchDoc[]
+  valueSelection: LocationSelection | null
+  onChangeSelection: (next: LocationSelection | null) => void
+  docs: LocationSearchDoc[]
   placeholder?: string
   ariaLabel: string
   className?: string
 }
 
+function docKey(d: LocationSearchDoc): string {
+  return `${d.kind}:${d.code}`
+}
+
 export function AirportAutocompleteInput({
-  valueIata,
-  onChangeIata,
+  valueSelection,
+  onChangeSelection,
   docs,
   placeholder,
   ariaLabel,
@@ -27,9 +33,9 @@ export function AirportAutocompleteInput({
   const [highlight, setHighlight] = useState(0)
   const blurCloseTimer = useRef<number | null>(null)
 
-  const docByIata = useMemo(() => {
-    const m = new Map<string, AirportSearchDoc>()
-    for (const d of docs) m.set(d.id, d)
+  const docByKey = useMemo(() => {
+    const m = new Map<string, LocationSearchDoc>()
+    for (const d of docs) m.set(docKey(d), d)
     return m
   }, [docs])
 
@@ -39,34 +45,47 @@ export function AirportAutocompleteInput({
   }, [query])
 
   const suggestions = useMemo(
-    () => filterAirportDocs(docs, debouncedQuery, 12),
+    () => filterLocationDocs(docs, debouncedQuery, 16),
     [docs, debouncedQuery],
   )
 
   useEffect(() => {
     if (focused) return
-    const code = valueIata.trim().toUpperCase()
-    if (!code) {
+    if (!valueSelection) {
       setQuery('')
       return
     }
-    const doc = docByIata.get(code)
-    setQuery(doc?.display ?? code)
-  }, [valueIata, docByIata, focused, docs.length])
+    const k = docKey({
+      kind: valueSelection.kind,
+      code: valueSelection.code,
+      search: '',
+      display: '',
+    })
+    const doc = docByKey.get(k)
+    setQuery(doc?.display ?? valueSelection.code)
+  }, [
+    valueSelection,
+    docByKey,
+    focused,
+    docs.length,
+  ])
 
-  const open = focused && suggestions.length > 0 && debouncedQuery.trim().length > 0
+  const open =
+    focused &&
+    suggestions.length > 0 &&
+    debouncedQuery.trim().length > 0
 
   useEffect(() => {
     setHighlight(0)
   }, [debouncedQuery, suggestions.length])
 
   const pick = useCallback(
-    (doc: AirportSearchDoc) => {
-      onChangeIata(doc.id)
+    (doc: LocationSearchDoc) => {
+      onChangeSelection({ kind: doc.kind, code: doc.code })
       setQuery(doc.display)
       setFocused(false)
     },
-    [onChangeIata],
+    [onChangeSelection],
   )
 
   const flushBlurClose = useCallback(() => {
@@ -78,19 +97,33 @@ export function AirportAutocompleteInput({
 
   const normalizeOnBlur = useCallback(() => {
     const q = query.trim().toUpperCase()
-    if (/^[A-Z]{3}$/.test(q) && docByIata.has(q)) {
-      const doc = docByIata.get(q)!
-      onChangeIata(doc.id)
-      setQuery(doc.display)
-      return
+    if (/^[A-Z0-9]{3}$/.test(q)) {
+      const airportHit = docByKey.get(`airport:${q}`)
+      if (airportHit) {
+        onChangeSelection({ kind: 'airport', code: q })
+        setQuery(airportHit.display)
+        return
+      }
+      const cityHit = docByKey.get(`city:${q}`)
+      if (cityHit) {
+        onChangeSelection({ kind: 'city', code: q })
+        setQuery(cityHit.display)
+        return
+      }
     }
-    const code = valueIata.trim().toUpperCase()
-    if (code && docByIata.has(code)) {
-      setQuery(docByIata.get(code)!.display)
-    } else if (!code) {
+    if (valueSelection) {
+      const k = docKey({
+        kind: valueSelection.kind,
+        code: valueSelection.code,
+        search: '',
+        display: '',
+      })
+      const doc = docByKey.get(k)
+      if (doc) setQuery(doc.display)
+    } else {
       setQuery('')
     }
-  }, [query, docByIata, onChangeIata, valueIata])
+  }, [query, docByKey, onChangeSelection, valueSelection])
 
   return (
     <div className={cn('relative min-w-0 flex-1', className)}>
@@ -108,7 +141,7 @@ export function AirportAutocompleteInput({
         onChange={(e) => {
           const v = e.target.value
           setQuery(v)
-          if (!v.trim()) onChangeIata('')
+          if (!v.trim()) onChangeSelection(null)
         }}
         onFocus={() => {
           flushBlurClose()
@@ -154,7 +187,7 @@ export function AirportAutocompleteInput({
           className="border-(--line) absolute left-0 right-0 z-30 mt-1 max-h-60 list-none overflow-auto rounded-lg border bg-(--header-bg) p-0 shadow-lg"
         >
           {suggestions.map((doc, i) => (
-            <li key={doc.id} role="presentation">
+            <li key={docKey(doc)} role="presentation">
               <button
                 type="button"
                 role="option"
@@ -167,6 +200,9 @@ export function AirportAutocompleteInput({
                 onMouseDown={(ev) => ev.preventDefault()}
                 onClick={() => pick(doc)}
               >
+                <span className="text-(--muted) mr-2 text-xs uppercase">
+                  {doc.kind === 'city' ? 'City' : 'Airport'}
+                </span>
                 {doc.display}
               </button>
             </li>
