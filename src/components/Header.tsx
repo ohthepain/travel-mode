@@ -18,7 +18,7 @@ export function AppHeaderBrand({ className, compact }: AppHeaderBrandProps) {
       className={cn(
         'group flex shrink-0 items-center gap-1.5 rounded-md text-[var(--sea-ink)] no-underline outline-none',
         'focus-visible:ring-2 focus-visible:ring-[var(--lagoon)]/40',
-        'focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--header-bg)]',
+        'focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--bg-base)]',
         className,
       )}
       aria-label="travelmode.live — My flights"
@@ -53,7 +53,7 @@ export default function Header() {
       : 'page-wrap px-3 sm:px-4'
 
   return (
-    <header className="sticky top-0 z-50 shrink-0 border-b border-[var(--line)] bg-[var(--header-bg)] backdrop-blur-lg">
+    <header className="sticky top-0 z-50 shrink-0 bg-[var(--bg-base)]">
       <div
         className={cn(
           'mx-auto flex min-h-14 w-full flex-wrap items-center gap-x-2 gap-y-2 py-2 sm:flex-nowrap sm:gap-3 sm:py-0',
@@ -94,7 +94,7 @@ export default function Header() {
           <UserMenu />
         </div>
 
-        <div className="flex w-full items-center gap-3 overflow-x-auto border-t border-[var(--line)] py-2 [scrollbar-width:none] sm:hidden [&::-webkit-scrollbar]:hidden">
+        <div className="flex w-full items-center gap-3 overflow-x-auto py-2 [scrollbar-width:none] sm:hidden [&::-webkit-scrollbar]:hidden">
           <Link
             to="/my-flights"
             className="nav-link shrink-0"

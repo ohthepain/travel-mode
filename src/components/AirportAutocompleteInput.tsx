@@ -12,6 +12,8 @@ type AirportAutocompleteInputProps = {
   placeholder?: string
   ariaLabel: string
   className?: string
+  /** Extra classes for the text input (merged with defaults). */
+  inputClassName?: string
 }
 
 function docKey(d: LocationSearchDoc): string {
@@ -25,6 +27,7 @@ export function AirportAutocompleteInput({
   placeholder,
   ariaLabel,
   className,
+  inputClassName,
 }: AirportAutocompleteInputProps) {
   const listId = useId()
   const [query, setQuery] = useState('')
@@ -178,7 +181,10 @@ export function AirportAutocompleteInput({
             return
           }
         }}
-        className="w-full rounded-lg border border-(--line) bg-(--chip-bg) px-3 py-2 font-normal"
+        className={cn(
+          'w-full rounded-lg border border-(--line) bg-(--chip-bg) px-3 py-2 font-normal',
+          inputClassName,
+        )}
       />
       {open ? (
         <ul

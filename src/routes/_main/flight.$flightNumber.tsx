@@ -5,9 +5,10 @@ import { FlightMap } from '../../components/FlightMap'
 import { wrapDegrees180 } from '../../lib/angle'
 import { cn } from '../../lib/cn'
 import {
+  defaultRasterMapId,
+  getConfiguredCustomMapId,
   isAllowedRasterMapId,
   MAP_STYLE_DROPDOWN,
-  MapStyle,
 } from '../../lib/map-styles'
 import { effectiveFlightMapBbox } from '../../lib/route-bbox-expand'
 import {
@@ -64,13 +65,15 @@ function FlightPage() {
   /** Native <select> breaks if value is not among <option> (e.g. stale id from an old pack). */
   useEffect(() => {
     if (!isAllowedRasterMapId(rasterMapId)) {
-      setRasterMapId(MapStyle.Base)
+      setRasterMapId(defaultRasterMapId())
     }
   }, [rasterMapId, setRasterMapId])
 
+  const customMapId = getConfiguredCustomMapId()
+
   const selectRasterValue = isAllowedRasterMapId(rasterMapId)
     ? rasterMapId
-    : MapStyle.Base
+    : defaultRasterMapId()
 
   const devMode = useAppOptionsStore((s) => s.devMode)
   const [showTracksJson, setShowTracksJson] = useState(false)
@@ -95,9 +98,9 @@ function FlightPage() {
   /** Heading-up: map rotates with track, icon fixed nose-up. North-up: map bearing 0, icon shows track direction. */
   const [followMode, setFollowMode] = useState(false)
   /**
-   * Online: same MapTiler preset as vector, hide place names. Offline: still raster; labels can show.
+   * Online: vector MapTiler style for the selected map id + hide placenames. Offline: cached raster — labels may show.
    */
-  const [hideBasemapLabels, setHideBasemapLabels] = useState(false)
+  const [hideBasemapLabels, setHideBasemapLabels] = useState(true)
   const playbackAnchorWallMs = useRef(0)
   const playbackAnchorElapsedMs = useRef(0)
 
@@ -236,290 +239,339 @@ function FlightPage() {
     }
   }, [downloadTiles, fn, travelDateQ, setFlight])
 
+  const offlineSection = (
+    <section className="mt-4 max-w-3xl rounded-xl border border-[var(--line)] bg-[var(--chip-bg)] p-4 lg:mt-0 lg:max-w-none">
+      <h2 className="mb-2 mt-0 text-lg text-[var(--sea-ink)]">
+        Offline adjustments
+      </h2>
+      <p className="mb-3 text-sm text-[var(--sea-ink-soft)]">
+        If the flight is late, nudge the takeoff time. Fine-tune the plane
+        marker with east / north offset (meters) if the view does not line up.
+      </p>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <label className="flex flex-col gap-1 text-sm text-[var(--sea-ink)]">
+          <span>Reference takeoff (local)</span>
+          <input
+            type="datetime-local"
+            className="rounded-lg border border-[var(--line)] bg-[var(--chip-bg)] px-3 py-2 text-[var(--sea-ink)]"
+            value={isoLocal(takeoff)}
+            onChange={(e) => {
+              const d = new Date(e.target.value)
+              if (!Number.isNaN(d.getTime())) setTakeoff(d)
+            }}
+          />
+        </label>
+        <label className="flex flex-col gap-1 text-sm text-[var(--sea-ink)]">
+          <span>Takeoff offset (min)</span>
+          <input
+            type="number"
+            className="rounded-lg border border-[var(--line)] bg-[var(--chip-bg)] px-3 py-2 text-[var(--sea-ink)]"
+            value={offMin}
+            onChange={(e) => setTakeoffOffset(Number(e.target.value) || 0)}
+          />
+        </label>
+        <label className="flex flex-col gap-1 text-sm text-[var(--sea-ink)]">
+          <span>Correction E (m)</span>
+          <input
+            type="number"
+            className="rounded-lg border border-[var(--line)] bg-[var(--chip-bg)] px-3 py-2 text-[var(--sea-ink)]"
+            value={c.e}
+            onChange={(e) => setCorrection(Number(e.target.value) || 0, c.n)}
+          />
+        </label>
+        <label className="flex flex-col gap-1 text-sm text-[var(--sea-ink)]">
+          <span>Correction N (m)</span>
+          <input
+            type="number"
+            className="rounded-lg border border-[var(--line)] bg-[var(--chip-bg)] px-3 py-2 text-[var(--sea-ink)]"
+            value={c.n}
+            onChange={(e) => setCorrection(c.e, Number(e.target.value) || 0)}
+          />
+        </label>
+      </div>
+    </section>
+  )
+
+  const flightMap = (
+    <FlightMap
+      line={line}
+      useOfflineRaster={useOffline}
+      center={center}
+      zoom={zoom}
+      plane={pos}
+      bbox={mapBbox}
+      mapSessionKey={mapSessionKey}
+      initialOfflineCenter={initialOfflineCenter}
+      mapBearing={mapBearing}
+      followMode={followMode}
+      planeTrackBearingDeg={trackBearingTurfDeg}
+      geoFeatures={geoFeatures}
+      rasterMapId={rasterMapId}
+      hideBasemapLabels={hideBasemapLabels}
+      onFollowModeChange={setFollowMode}
+      className={cn(
+        mapMode && 'flex min-h-0 flex-1 flex-col',
+        !mapMode && 'lg:flex lg:h-full lg:min-h-0 lg:flex-1 lg:flex-col',
+      )}
+      mapClassName={cn(
+        mapMode &&
+          'h-full min-h-[280px] flex-1 rounded-none max-lg:min-h-[min(72dvh,620px)]',
+        !mapMode && 'lg:h-full lg:min-h-0 lg:flex-1 lg:rounded-none',
+      )}
+    />
+  )
+
   return (
     <main
       className={cn(
-        'bg-slate-950 text-slate-100 px-3 pb-8 pt-6 sm:px-4',
-        mapMode ? 'page-wrap' : 'mx-auto w-full max-w-md sm:max-w-lg',
+        'w-full bg-[var(--bg-base)] text-[var(--sea-ink)]',
+        mapMode
+          ? 'fixed inset-x-0 bottom-0 top-14 z-10 flex flex-col'
+          : 'flex min-h-0 flex-col pb-8 pt-6 max-lg:mx-auto max-lg:max-w-lg max-lg:px-3 sm:max-lg:max-w-xl sm:max-lg:px-4 lg:mx-0 lg:max-w-none lg:min-h-[calc(100dvh-3.5rem)] lg:flex-row lg:p-0 lg:pb-0 lg:pt-0',
       )}
     >
-      <div className="mb-4 flex flex-col gap-1">
-        <p className="m-0 text-sm tracking-wide text-cyan-400/90">
-          travelmode.live
-        </p>
-        <h1 className="m-0 text-2xl font-semibold text-white">Flight {fn}</h1>
-      </div>
+      {mapMode ? (
+        <div className="flex min-h-0 flex-1 flex-col">{flightMap}</div>
+      ) : (
+        <>
+          <div className="order-1 flex min-w-0 flex-col lg:order-1 lg:w-[min(28rem,42vw)] lg:shrink-0 lg:overflow-y-auto lg:border-r lg:border-[var(--line)] lg:px-5 lg:py-5">
+            <div className="mb-4 flex flex-col gap-1">
+              <p className="m-0 text-sm tracking-wide text-[var(--lagoon-deep)]">
+                travelmode.live
+              </p>
+              <h1 className="m-0 text-2xl font-semibold text-[var(--sea-ink)]">
+                Flight {fn}
+              </h1>
+            </div>
 
-      <div className="mb-4 grid max-w-3xl grid-cols-1 gap-3 sm:grid-cols-2">
-        <label className="flex flex-col gap-1 text-sm">
-          <input
-            className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2"
-            value={fn}
-            onChange={(e) => setFn(e.target.value.toUpperCase())}
-          />
-        </label>
-        <div className="flex flex-wrap items-end gap-2">
-          <button
-            type="button"
-            className="rounded-lg border border-slate-600 bg-slate-800 px-3 py-2 text-sm"
-            onClick={loadTracks}
-          >
-            Load tracks
-          </button>
-          {devMode && (
-            <button
-              type="button"
-              className="rounded-lg border border-amber-700/80 bg-amber-950/50 px-3 py-2 text-amber-100/90 text-sm"
-              onClick={() => setShowTracksJson((v) => !v)}
-              title={
-                lastTracksPayload == null ? 'Load tracks first' : undefined
-              }
-            >
-              {showTracksJson ? 'Hide' : 'Show'} tracks JSON
-            </button>
-          )}
-        </div>
-      </div>
+            <div className="mb-4 grid max-w-3xl grid-cols-1 gap-3 sm:grid-cols-2">
+              <label className="flex flex-col gap-1 text-sm">
+                <input
+                  className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2"
+                  value={fn}
+                  onChange={(e) => setFn(e.target.value.toUpperCase())}
+                />
+              </label>
+              <div className="flex flex-wrap items-end gap-2">
+                <button
+                  type="button"
+                  className="rounded-lg border border-slate-600 bg-slate-800 px-3 py-2 text-sm"
+                  onClick={loadTracks}
+                >
+                  Load tracks
+                </button>
+                {devMode && (
+                  <button
+                    type="button"
+                    className="rounded-lg border border-amber-700/80 bg-amber-950/50 px-3 py-2 text-amber-100/90 text-sm"
+                    onClick={() => setShowTracksJson((v) => !v)}
+                    title={
+                      lastTracksPayload == null
+                        ? 'Load tracks first'
+                        : undefined
+                    }
+                  >
+                    {showTracksJson ? 'Hide' : 'Show'} tracks JSON
+                  </button>
+                )}
+              </div>
+            </div>
 
-      {devMode && showTracksJson && (
-        <div className="mb-3 max-w-3xl">
-          {lastTracksPayload == null ? (
-            <p className="text-slate-500 m-0 text-sm">
-              No track payload yet — use Load tracks, or open a flight saved for
-              offline.
-            </p>
-          ) : (
-            <pre className="max-h-[min(50vh,360px)] overflow-auto rounded-lg border border-slate-700 bg-slate-950/90 p-3 text-xs text-slate-200 tabular-nums">
-              {stringifyTracksDebug(lastTracksPayload)}
-            </pre>
-          )}
-        </div>
-      )}
-
-      {msg && <p className="mb-2 text-amber-200">{msg}</p>}
-
-      <div className="mb-3 flex flex-wrap items-end gap-2">
-        <label className="relative z-20 flex min-w-0 flex-col gap-1 text-sm text-slate-300">
-          <span className="text-slate-500">
-            Map style (download and online)
-          </span>
-          <select
-            className="min-w-36 appearance-auto rounded-lg border border-slate-600 bg-slate-900 px-2 py-2 text-slate-100"
-            value={selectRasterValue}
-            disabled={Boolean(tileProgress)}
-            title={
-              tileProgress
-                ? 'Wait until Save for offline finishes'
-                : useOffline
-                  ? 'Changing basemap turns off offline mode so the new style can load online tiles'
-                  : 'MapTiler basemap: used for live view and the next Save for offline'
-            }
-            onChange={(e) => {
-              const v = e.target.value
-              if (!isAllowedRasterMapId(v)) return
-              if (useOffline && v !== rasterMapId) {
-                setUseOffline(false)
-                setMsg(
-                  'Offline mode turned off so the new basemap can load online tiles. Save for offline again if you need this style cached.',
-                )
-              }
-              setRasterMapId(v)
-            }}
-          >
-            {MAP_STYLE_DROPDOWN.map((o) => (
-              <option key={o.value} value={o.value}>
-                {o.label}
-              </option>
-            ))}
-          </select>
-          {useOffline && !tileProgress ? (
-            <span className="max-w-xs text-xs text-slate-500">
-              Choosing another basemap here turns off Offline mode so tiles can
-              load from the network.
-            </span>
-          ) : null}
-        </label>
-        <button
-          type="button"
-          onClick={onDownload}
-          disabled={Boolean(tileProgress) || !canSaveOffline}
-          className="inline-flex items-center gap-2 rounded-lg bg-slate-200 px-3 py-2 text-sm font-medium text-slate-900 disabled:cursor-not-allowed disabled:opacity-60"
-          title={
-            canSaveOffline
-              ? 'Caches map tiles, geo feature tiles, and this route for offline'
-              : 'Load tracks first so the map area is known, then you can save it for offline'
-          }
-        >
-          {tileProgress && (
-            <Loader2 className="size-4 shrink-0 animate-spin" aria-hidden />
-          )}
-          {tileProgress
-            ? `${tileProgress.done} / ${tileProgress.total} files`
-            : 'Save for offline'}
-        </button>
-        <label className="inline-flex items-center gap-2 text-sm">
-          <input
-            type="checkbox"
-            checked={useOffline}
-            onChange={(e) => setUseOffline(e.target.checked)}
-          />
-          Offline mode
-        </label>
-        <label
-          className="inline-flex min-w-0 max-w-sm items-center gap-2 text-sm"
-          title={
-            useOffline
-              ? 'Saved tiles are raster images; to hide text use online mode or try the Satellite basemap for imagery with fewer labels.'
-              : 'Uses MapTiler’s hosted vector style (same style id) and hides basemap text at runtime. No custom map in Cloud.'
-          }
-        >
-          <input
-            type="checkbox"
-            checked={hideBasemapLabels}
-            disabled={useOffline}
-            onChange={(e) => setHideBasemapLabels(e.target.checked)}
-          />
-          <span className={useOffline ? 'text-slate-500' : 'text-slate-200'}>
-            Hide basemap labels (online)
-          </span>
-        </label>
-      </div>
-      {tileProgress && (
-        <p className="text-slate-400 mb-2 text-sm tabular-nums">
-          Saving map for offline — files {tileProgress.done} /{' '}
-          {tileProgress.total}
-        </p>
-      )}
-
-      <div className="mb-2 text-slate-500 text-sm">
-        {useOffline && mapBbox ? (
-          <>
-            Offline map stays within downloaded tiles (pan when zoomed in; zoom
-            does not move your pan target).
-          </>
-        ) : (
-          <>
-            Map center follows playback position
-            {mapBbox
-              ? ` — bbox W:${mapBbox[0].toFixed(2)} S:${mapBbox[1].toFixed(2)} E:${mapBbox[2].toFixed(2)} N:${mapBbox[3].toFixed(2)}`
-              : ''}
-            {useOffline && (
-              <span className="text-slate-400">
-                {' '}
-                — load tracks (or open this page after saving for offline) so
-                the map can limit the view to cached tiles.
-              </span>
+            {devMode && showTracksJson && (
+              <div className="mb-3 max-w-3xl">
+                {lastTracksPayload == null ? (
+                  <p className="text-slate-500 m-0 text-sm">
+                    No track payload yet — use Load tracks, or open a flight
+                    saved for offline.
+                  </p>
+                ) : (
+                  <pre className="max-h-[min(50vh,360px)] overflow-auto rounded-lg border border-slate-700 bg-slate-950/90 p-3 text-xs text-slate-200 tabular-nums">
+                    {stringifyTracksDebug(lastTracksPayload)}
+                  </pre>
+                )}
+              </div>
             )}
-          </>
-        )}
-      </div>
 
-      <section className="mb-3 max-w-3xl rounded-xl border border-slate-800 bg-slate-900/50 p-4">
-        <h2 className="mb-2 mt-0 text-base font-medium text-white">
-          Flight playback
-        </h2>
-        <p className="text-slate-500 mb-3 text-sm tabular-nums">
-          Elapsed {formatElapsedHms(elapsedMs)}
-          {durationMs != null && <> / {formatElapsedHms(durationMs)}</>}
-        </p>
-        <div className="mb-3 flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            className="rounded-lg border border-cyan-700/80 bg-cyan-950/80 px-3 py-2 text-sm font-medium text-cyan-100 disabled:cursor-not-allowed disabled:opacity-50"
-            disabled={durationMs == null || isPlaying}
-            onClick={onTakeOff}
-          >
-            {isPlaying
-              ? 'In flight…'
-              : hasStartedPlayback
-                ? 'Resume'
-                : 'Take off'}
-          </button>
-        </div>
-        <label className="flex flex-col gap-1 text-sm">
-          <span className="text-slate-400">Scrub along track</span>
-          <input
-            type="range"
-            className="w-full disabled:opacity-50"
-            min={0}
-            max={durationMs ?? 0}
-            step={1}
-            value={durationMs != null ? Math.min(elapsedMs, durationMs) : 0}
-            disabled={durationMs == null}
-            onChange={(e) => {
-              setIsPlaying(false)
-              setElapsedMs(Number(e.currentTarget.value))
-            }}
-          />
-        </label>
-      </section>
+            {msg && <p className="mb-2 text-amber-200">{msg}</p>}
 
-      <FlightMap
-        line={line}
-        useOfflineRaster={useOffline}
-        center={center}
-        zoom={zoom}
-        plane={pos}
-        bbox={mapBbox}
-        mapSessionKey={mapSessionKey}
-        initialOfflineCenter={initialOfflineCenter}
-        mapBearing={mapBearing}
-        followMode={followMode}
-        planeTrackBearingDeg={trackBearingTurfDeg}
-        geoFeatures={geoFeatures}
-        rasterMapId={rasterMapId}
-        hideBasemapLabels={hideBasemapLabels}
-        onFollowModeChange={setFollowMode}
-      />
+            <div className="mb-3 flex flex-wrap items-end gap-2">
+              <label className="relative z-20 flex min-w-0 flex-col gap-1 text-sm text-slate-300">
+                <span className="text-slate-500">
+                  Map style (download and online)
+                </span>
+                <select
+                  className="min-w-36 appearance-auto rounded-lg border border-slate-600 bg-slate-900 px-2 py-2 text-slate-100"
+                  value={selectRasterValue}
+                  disabled={Boolean(tileProgress)}
+                  title={
+                    tileProgress
+                      ? 'Wait until Save for offline finishes'
+                      : useOffline
+                        ? 'Changing basemap turns off offline mode so the new style can load online tiles'
+                        : 'MapTiler basemap: used for live view and the next Save for offline'
+                  }
+                  onChange={(e) => {
+                    const v = e.target.value
+                    if (!isAllowedRasterMapId(v)) return
+                    if (useOffline && v !== rasterMapId) {
+                      setUseOffline(false)
+                      setMsg(
+                        'Offline mode turned off so the new basemap can load online tiles. Save for offline again if you need this style cached.',
+                      )
+                    }
+                    setRasterMapId(v)
+                  }}
+                >
+                  {customMapId ? (
+                    <option value={customMapId} title={`Custom map id: ${customMapId}`}>
+                      Custom ({customMapId})
+                    </option>
+                  ) : null}
+                  {MAP_STYLE_DROPDOWN.map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label}
+                    </option>
+                  ))}
+                </select>
+                {useOffline && !tileProgress ? (
+                  <span className="max-w-xs text-xs text-slate-500">
+                    Choosing another basemap here turns off Offline mode so
+                    tiles can load from the network.
+                  </span>
+                ) : null}
+              </label>
+              <button
+                type="button"
+                onClick={onDownload}
+                disabled={Boolean(tileProgress) || !canSaveOffline}
+                className="inline-flex items-center gap-2 rounded-lg bg-slate-200 px-3 py-2 text-sm font-medium text-slate-900 disabled:cursor-not-allowed disabled:opacity-60"
+                title={
+                  canSaveOffline
+                    ? 'Caches map tiles, geo feature tiles, and this route for offline'
+                    : 'Load tracks first so the map area is known, then you can save it for offline'
+                }
+              >
+                {tileProgress && (
+                  <Loader2
+                    className="size-4 shrink-0 animate-spin"
+                    aria-hidden
+                  />
+                )}
+                {tileProgress
+                  ? `${tileProgress.done} / ${tileProgress.total} files`
+                  : 'Save for offline'}
+              </button>
+              <label className="inline-flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={useOffline}
+                  onChange={(e) => setUseOffline(e.target.checked)}
+                />
+                Offline mode
+              </label>
+              <label
+                className="inline-flex min-w-0 max-w-sm items-center gap-2 text-sm"
+                title={
+                  useOffline
+                    ? 'Offline uses cached raster tiles; hiding basemap labels applies in online vector mode only.'
+                    : 'Loads MapTiler vector style via the app proxy (same map id as the basemap picker) and hides basemap symbol text. Supports presets and a custom Cloud map via VITE_MAPTILER_RASTER_MAP_ID.'
+                }
+              >
+                <input
+                  type="checkbox"
+                  checked={hideBasemapLabels}
+                  disabled={useOffline}
+                  onChange={(e) => setHideBasemapLabels(e.target.checked)}
+                />
+                <span
+                  className={useOffline ? 'text-slate-500' : 'text-slate-200'}
+                >
+                  Hide basemap labels (online)
+                </span>
+              </label>
+            </div>
+            {tileProgress && (
+              <p className="text-slate-400 mb-2 text-sm tabular-nums">
+                Saving map for offline — files {tileProgress.done} /{' '}
+                {tileProgress.total}
+              </p>
+            )}
 
-      <section className="mt-4 max-w-3xl rounded-xl border border-slate-800 bg-slate-900/50 p-4">
-        <h2 className="mb-2 mt-0 text-lg">Offline adjustments</h2>
-        <p className="text-slate-500 mb-3 text-sm">
-          If the flight is late, nudge the takeoff time. Fine-tune the plane
-          marker with east / north offset (meters) if the view does not line up.
-        </p>
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <label className="flex flex-col gap-1 text-sm">
-            <span>Reference takeoff (local)</span>
-            <input
-              type="datetime-local"
-              className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2"
-              value={isoLocal(takeoff)}
-              onChange={(e) => {
-                const d = new Date(e.target.value)
-                if (!Number.isNaN(d.getTime())) setTakeoff(d)
-              }}
-            />
-          </label>
-          <label className="flex flex-col gap-1 text-sm">
-            <span>Takeoff offset (min)</span>
-            <input
-              type="number"
-              className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2"
-              value={offMin}
-              onChange={(e) => setTakeoffOffset(Number(e.target.value) || 0)}
-            />
-          </label>
-          <label className="flex flex-col gap-1 text-sm">
-            <span>Correction E (m)</span>
-            <input
-              type="number"
-              className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2"
-              value={c.e}
-              onChange={(e) => setCorrection(Number(e.target.value) || 0, c.n)}
-            />
-          </label>
-          <label className="flex flex-col gap-1 text-sm">
-            <span>Correction N (m)</span>
-            <input
-              type="number"
-              className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2"
-              value={c.n}
-              onChange={(e) => setCorrection(c.e, Number(e.target.value) || 0)}
-            />
-          </label>
-        </div>
-      </section>
+            <div className="mb-2 text-slate-500 text-sm">
+              {useOffline && mapBbox ? (
+                <>
+                  Offline map stays within downloaded tiles (pan when zoomed in;
+                  zoom does not move your pan target).
+                </>
+              ) : (
+                <>
+                  Map center follows playback position
+                  {mapBbox
+                    ? ` — bbox W:${mapBbox[0].toFixed(2)} S:${mapBbox[1].toFixed(2)} E:${mapBbox[2].toFixed(2)} N:${mapBbox[3].toFixed(2)}`
+                    : ''}
+                  {useOffline && (
+                    <span className="text-slate-400">
+                      {' '}
+                      — load tracks (or open this page after saving for offline)
+                      so the map can limit the view to cached tiles.
+                    </span>
+                  )}
+                </>
+              )}
+            </div>
+
+            <section className="mb-3 max-w-3xl rounded-xl border border-slate-800 bg-slate-900/50 p-4">
+              <h2 className="mb-2 mt-0 text-base font-medium text-white">
+                Flight playback
+              </h2>
+              <p className="text-slate-500 mb-3 text-sm tabular-nums">
+                Elapsed {formatElapsedHms(elapsedMs)}
+                {durationMs != null && <> / {formatElapsedHms(durationMs)}</>}
+              </p>
+              <div className="mb-3 flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  className="rounded-lg border border-cyan-700/80 bg-cyan-950/80 px-3 py-2 text-sm font-medium text-cyan-100 disabled:cursor-not-allowed disabled:opacity-50"
+                  disabled={durationMs == null || isPlaying}
+                  onClick={onTakeOff}
+                >
+                  {isPlaying
+                    ? 'In flight…'
+                    : hasStartedPlayback
+                      ? 'Resume'
+                      : 'Take off'}
+                </button>
+              </div>
+              <label className="flex flex-col gap-1 text-sm">
+                <span className="text-slate-400">Scrub along track</span>
+                <input
+                  type="range"
+                  className="w-full disabled:opacity-50"
+                  min={0}
+                  max={durationMs ?? 0}
+                  step={1}
+                  value={
+                    durationMs != null ? Math.min(elapsedMs, durationMs) : 0
+                  }
+                  disabled={durationMs == null}
+                  onChange={(e) => {
+                    setIsPlaying(false)
+                    setElapsedMs(Number(e.currentTarget.value))
+                  }}
+                />
+              </label>
+            </section>
+
+            <div className="hidden lg:mt-4 lg:block">{offlineSection}</div>
+          </div>
+
+          <div className="order-2 flex min-h-0 min-w-0 flex-col lg:order-2 lg:flex-1 lg:min-h-0">
+            {flightMap}
+          </div>
+
+          <div className="order-3 lg:hidden">{offlineSection}</div>
+        </>
+      )}
     </main>
   )
 }

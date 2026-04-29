@@ -8,7 +8,11 @@ import {
   putTile,
   saveFlightPack,
 } from '../lib/tile-idb'
-import { MapStyle, type RasterMapId, isAllowedRasterMapId } from '../lib/map-styles'
+import {
+  type RasterMapId,
+  isAllowedRasterMapId,
+  defaultRasterMapId,
+} from '../lib/map-styles'
 import { appMapTileUrlTemplate, countTilesBbox, tileRangeForBbox } from '../lib/tiles'
 import { effectiveFlightMapBbox } from '../lib/route-bbox-expand'
 import {
@@ -90,7 +94,7 @@ export const useFlightStore = create<FlightState>((set, get) => ({
   correctionEN: { e: 0, n: 0 },
   tileProgress: null,
   useOffline: false,
-  rasterMapId: MapStyle.Base,
+  rasterMapId: defaultRasterMapId(),
   setRasterMapId: (id) => set({ rasterMapId: id }),
   mapMode: false,
   setMapMode: (v) => set({ mapMode: v }),
@@ -138,7 +142,9 @@ export const useFlightStore = create<FlightState>((set, get) => ({
       const line = firstLineString(g)
       const t0 = line ? firstTime(line) : null
       const packMap =
-        p.rasterMapId && isAllowedRasterMapId(p.rasterMapId) ? p.rasterMapId : MapStyle.Base
+        p.rasterMapId && isAllowedRasterMapId(p.rasterMapId)
+          ? p.rasterMapId
+          : defaultRasterMapId()
       set({
         line,
         lastGeojson: p.geojson,

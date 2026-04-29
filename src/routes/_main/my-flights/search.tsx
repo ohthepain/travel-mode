@@ -1,6 +1,6 @@
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Check, Loader2, Timer } from 'lucide-react'
+import { ArrowLeftRight, Check, Loader2, Timer } from 'lucide-react'
 import { toast } from 'sonner'
 import { authClient } from '../../../lib/auth-client'
 import { ensureAirlinesLoaded } from '#/lib/airlines-client'
@@ -58,6 +58,14 @@ function addUtcDays(ymd: string, delta: number): string {
   return d.toISOString().slice(0, 10)
 }
 
+function defaultSearchDateFrom(): string {
+  return utcTodayYmd()
+}
+
+function defaultSearchDateTo(): string {
+  return addUtcDays(utcTodayYmd(), 7)
+}
+
 /** Inclusive UTC calendar range for the search query. */
 function resolveSearchRange(
   dateFrom: string,
@@ -67,7 +75,7 @@ function resolveSearchRange(
   const hasTo = Boolean(dateTo.trim())
   const today = utcTodayYmd()
   if (!hasFrom && !hasTo) {
-    return { start: addUtcDays(today, -7), end: addUtcDays(today, 7) }
+    return { start: today, end: addUtcDays(today, 7) }
   }
   if (hasFrom && hasTo) {
     let a = dateFrom.trim()
@@ -233,8 +241,12 @@ function FlightSearchPage() {
   const session = authClient.useSession()
   const navigate = useNavigate()
   const urlSearch = Route.useSearch()
-  const [dateFrom, setDateFrom] = useState(() => urlSearch.df ?? '')
-  const [dateTo, setDateTo] = useState(() => urlSearch.dt ?? '')
+  const [dateFrom, setDateFrom] = useState(
+    () => urlSearch.df ?? defaultSearchDateFrom(),
+  )
+  const [dateTo, setDateTo] = useState(
+    () => urlSearch.dt ?? defaultSearchDateTo(),
+  )
   const [flightNumber, setFlightNumber] = useState(() => urlSearch.fn ?? '')
   const [originSel, setOriginSel] = useState<LocationSelection | null>(() =>
     selectionFromUrl(urlSearch.from, urlSearch.fromKind),
@@ -408,21 +420,29 @@ function FlightSearchPage() {
     return `/my-flights/search?${sp.toString()}`
   }, [dateFrom, dateTo, flightNumber, originSel, destSel])
 
+  const swapOriginDest = useCallback(() => {
+    const o = originSel
+    setOriginSel(destSel)
+    setDestSel(o)
+  }, [originSel, destSel])
+
   useEffect(() => {
     const fnTrim = urlSearch.fn?.trim()
     const hasAir = !!(urlSearch.from ?? urlSearch.to)
     if (!fnTrim && !hasAir) return
-    const key = `${urlSearch.df ?? ''}|${urlSearch.dt ?? ''}|${fnTrim ?? ''}|${urlSearch.from ?? ''}|${urlSearch.fromKind ?? ''}|${urlSearch.to ?? ''}|${urlSearch.toKind ?? ''}`
+    const resolvedDf = urlSearch.df ?? defaultSearchDateFrom()
+    const resolvedDt = urlSearch.dt ?? defaultSearchDateTo()
+    const key = `${resolvedDf}|${resolvedDt}|${fnTrim ?? ''}|${urlSearch.from ?? ''}|${urlSearch.fromKind ?? ''}|${urlSearch.to ?? ''}|${urlSearch.toKind ?? ''}`
     if (lastBootstrapKey.current === key) return
     lastBootstrapKey.current = key
-    setDateFrom(urlSearch.df ?? '')
-    setDateTo(urlSearch.dt ?? '')
+    setDateFrom(resolvedDf)
+    setDateTo(resolvedDt)
     setFlightNumber(fnTrim ?? '')
     setOriginSel(selectionFromUrl(urlSearch.from, urlSearch.fromKind))
     setDestSel(selectionFromUrl(urlSearch.to, urlSearch.toKind))
     void executeSearch({
-      dateFrom: urlSearch.df ?? '',
-      dateTo: urlSearch.dt ?? '',
+      dateFrom: resolvedDf,
+      dateTo: resolvedDt,
       flightNumber: fnTrim ?? '',
       originSel: selectionFromUrl(urlSearch.from, urlSearch.fromKind),
       destSel: selectionFromUrl(urlSearch.to, urlSearch.toKind),
@@ -526,8 +546,11 @@ function FlightSearchPage() {
     visibleCount < results.length &&
     !loading
 
+  const searchFieldClass =
+    'rounded-lg border border-(--line) bg-(--chip-bg) px-3 py-2 font-normal outline-none ring-cyan-500/35 focus-visible:ring-2'
+
   return (
-    <main className="mx-auto w-full max-w-lg px-3 pb-10 pt-6 sm:max-w-xl sm:px-4">
+    <main className="mx-auto w-full max-w-5xl px-3 pb-10 pt-6 sm:px-4">
       <p className="mb-1">
         <Link
           to="/my-flights"
@@ -536,84 +559,135 @@ function FlightSearchPage() {
           ← My flights
         </Link>
       </p>
-      <h1 className="mt-0 mb-2 text-2xl font-semibold text-(--sea-ink)">
+      <h1 className="mt-0 mb-3 text-2xl font-semibold text-(--sea-ink)">
         Search flights
       </h1>
-      <p className="text-(--muted) mb-6 text-sm">
-        Look up timetable legs (AirLabs). Dates are UTC. With no dates, search
-        runs from one week before today through one week after. Only a start
-        date searches forward; only an end date searches backward (each open end
-        uses a 45-day window). Optional IATA origin and destination narrow to
-        one route.
+      <p className="text-(--muted) mb-6 max-w-3xl text-sm">
+        Timetable search (AirLabs). Dates use the UTC calendar. Optional origin
+        and destination narrow routes; optionally add a flight number. Clearing
+        both dates defaults the range to today through one week ahead; a single
+        date keeps a 45-day open end.
       </p>
 
-      <div className="mb-6 flex flex-col gap-4">
-        <label className="flex flex-col gap-1.5 text-sm font-medium text-(--sea-ink)">
-          <span>
-            Departure and arrival (optional) — choose a city or airport; cities
-            show as “City, Country (code)”
-          </span>
-          <div className="flex flex-wrap items-start gap-2 sm:max-w-md">
+      <div className="mb-8 overflow-hidden rounded-2xl border border-(--line) bg-(--surface-strong) shadow-sm [&_label]:cursor-pointer">
+        <div className="flex flex-col divide-y divide-(--line) md:flex-row md:flex-nowrap md:divide-x md:divide-y-0 md:items-stretch">
+          {/* Origin */}
+          <div className="group/field relative flex min-h-13 min-w-0 flex-1 flex-col justify-center px-3 py-2.5">
+            <span className="text-(--muted) mb-0.5 text-[11px] font-semibold uppercase tracking-wide">
+              From
+            </span>
             <AirportAutocompleteInput
               valueSelection={originSel}
               onChangeSelection={setOriginSel}
               docs={locationDocs}
-              placeholder={"Nice, STO, Côte d'Azur…"}
+              placeholder={"City, airport, code…"}
               ariaLabel="Origin airport or city"
+              className="min-w-0"
+              inputClassName="border-0 bg-transparent px-0 py-1 text-sm font-medium text-(--sea-ink) shadow-none focus-visible:ring-2 focus-visible:ring-cyan-500/35"
             />
-            <span className="text-(--muted) shrink-0 pt-2">→</span>
+          </div>
+
+          {/* Swap — desktop: between columns; mobile: centered row */}
+          <div className="flex items-center justify-center py-1 md:w-12 md:shrink-0 md:py-0">
+            <button
+              type="button"
+              onClick={swapOriginDest}
+              title="Swap origin and destination"
+              aria-label="Swap origin and destination"
+              className={cn(
+                'flex size-10 items-center justify-center rounded-full',
+                'border border-(--line) bg-(--chip-bg) text-(--sea-ink)',
+                'hover:bg-black/4 dark:hover:bg-white/6',
+                'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-500',
+              )}
+            >
+              <ArrowLeftRight className="size-4" aria-hidden />
+            </button>
+          </div>
+
+          {/* Destination */}
+          <div className="group/field relative flex min-h-13 min-w-0 flex-1 flex-col justify-center px-3 py-2.5">
+            <span className="text-(--muted) mb-0.5 text-[11px] font-semibold uppercase tracking-wide">
+              To
+            </span>
             <AirportAutocompleteInput
               valueSelection={destSel}
               onChangeSelection={setDestSel}
               docs={locationDocs}
-              placeholder="Stockholm, ARN, Arlanda…"
+              placeholder="City, airport, code…"
               ariaLabel="Destination airport or city"
+              className="min-w-0"
+              inputClassName="border-0 bg-transparent px-0 py-1 text-sm font-medium text-(--sea-ink) shadow-none focus-visible:ring-2 focus-visible:ring-cyan-500/35"
             />
           </div>
-        </label>
-        <label className="flex flex-col gap-1.5 text-sm font-medium text-(--sea-ink)">
-          Or ... Flight number
-          <input
-            value={flightNumber}
-            onChange={(e) => setFlightNumber(e.target.value.toUpperCase())}
-            placeholder="D84322 / NSZ4322"
-            className="rounded-lg border border-(--line) bg-(--chip-bg) px-3 py-2 font-mono font-normal tracking-wide"
-          />
-        </label>{' '}
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <label className="flex flex-col gap-1.5 text-sm font-medium text-(--sea-ink)">
-            Start date (optional, UTC)
+
+          {/* Date range */}
+          <div className="flex min-w-0 flex-[1.15] flex-col justify-center gap-2 px-3 py-3 md:min-w-64 md:max-w-xl">
+            <span className="text-(--muted) text-[11px] font-semibold uppercase tracking-wide">
+              Dates (UTC)
+            </span>
+            <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:gap-2">
+              <label className="flex min-w-0 flex-1 flex-col gap-1 text-xs font-medium text-(--sea-ink)">
+                <span className="text-(--muted) font-normal">Start</span>
+                <input
+                  type="date"
+                  value={dateFrom}
+                  onChange={(e) => setDateFrom(e.target.value)}
+                  className={cn(searchFieldClass, 'w-full min-w-0 tabular-nums')}
+                />
+              </label>
+              <span className="text-(--muted) hidden shrink-0 sm:mt-5 sm:inline">
+                –
+              </span>
+              <label className="flex min-w-0 flex-1 flex-col gap-1 text-xs font-medium text-(--sea-ink)">
+                <span className="text-(--muted) font-normal">End</span>
+                <input
+                  type="date"
+                  value={dateTo}
+                  onChange={(e) => setDateTo(e.target.value)}
+                  className={cn(searchFieldClass, 'w-full min-w-0 tabular-nums')}
+                />
+              </label>
+            </div>
+          </div>
+
+          {/* Search */}
+          <div className="flex shrink-0 items-stretch p-3 md:flex-col md:justify-stretch">
+            <button
+              type="button"
+              disabled={loading}
+              onClick={() => void executeSearch()}
+              className={cn(
+                'w-full min-h-12 rounded-xl px-5 text-sm font-semibold whitespace-nowrap',
+                'md:w-auto md:self-stretch md:px-6',
+                'bg-cyan-600 text-slate-950 hover:bg-cyan-500',
+                'disabled:cursor-not-allowed disabled:opacity-50',
+              )}
+            >
+              {loading ? 'Searching…' : 'Search'}
+            </button>
+          </div>
+        </div>
+
+        {/* Optional flight number — second band in the same card */}
+        <div className="border-t border-(--line) px-3 py-3 sm:px-4">
+          <label className="flex flex-col gap-1.5">
+            <span className="text-(--muted) text-[11px] font-semibold uppercase tracking-wide">
+              Flight number{' '}
+              <span className="font-normal normal-case opacity-90">(optional)</span>
+            </span>
             <input
-              type="date"
-              value={dateFrom}
-              onChange={(e) => setDateFrom(e.target.value)}
-              className="rounded-lg border border-(--line) bg-(--chip-bg) px-3 py-2 font-normal"
-            />
-          </label>
-          <label className="flex flex-col gap-1.5 text-sm font-medium text-(--sea-ink)">
-            End date (optional, UTC)
-            <input
-              type="date"
-              value={dateTo}
-              onChange={(e) => setDateTo(e.target.value)}
-              className="rounded-lg border border-(--line) bg-(--chip-bg) px-3 py-2 font-normal"
+              value={flightNumber}
+              onChange={(e) => setFlightNumber(e.target.value.toUpperCase())}
+              placeholder="D84322 · NSZ4322"
+              className={cn(
+                searchFieldClass,
+                'w-full max-w-xl font-mono font-normal tracking-wide',
+              )}
             />
           </label>
         </div>
       </div>
-
-      <button
-        type="button"
-        disabled={loading}
-        onClick={() => void executeSearch()}
-        className={cn(
-          'mb-6 rounded-lg px-4 py-2.5 text-sm font-semibold',
-          'bg-cyan-600 text-slate-950 hover:bg-cyan-500',
-          'disabled:cursor-not-allowed disabled:opacity-50',
-        )}
-      >
-        {loading ? 'Searching…' : 'Search'}
-      </button>
 
       {error && (
         <p className="mb-4 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-800 dark:text-amber-100">

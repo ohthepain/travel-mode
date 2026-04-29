@@ -81,14 +81,18 @@ export type FlightMapProps = {
   /** Turf-style track bearing (° clockwise from north); used for the plane icon in north-up mode only. */
   planeTrackBearingDeg: number | null
   geoFeatures: FeatureCollection<Geometry> | null
-  /** MapTiler raster `mapId` (online and offline `offtm` cache lookup). */
+  /** MapTiler `mapId` — preset or configured custom id (`VITE_MAPTILER_RASTER_MAP_ID`); offline `offtm` cache key. */
   rasterMapId: RasterMapId
   /**
-   * When true and online: load the same id as a **vector** MapTiler preset and hide basemap
-   * text (no custom style). Offline still uses cached **raster** tiles, so labels may show.
+   * When true and online: load vector style for this id (proxy `style.json`) and hide basemap text layers.
+   * Offline still uses cached **raster** tiles, so basemap labels may show.
    */
   hideBasemapLabels: boolean
   onFollowModeChange: (next: boolean) => void
+  /** Outer wrapper (e.g. flex-1 min-h-0 for viewport-filling map). */
+  className?: string
+  /** Map canvas box (height, rounding). */
+  mapClassName?: string
 }
 
 const transformMapTilerForProxy: maplibregl.MapOptions['transformRequest'] = (
@@ -98,8 +102,7 @@ const transformMapTilerForProxy: maplibregl.MapOptions['transformRequest'] = (
     url.startsWith('https://api.maptiler.com/') ||
     url.startsWith('http://api.maptiler.com/')
   ) {
-    const origin =
-      typeof window !== 'undefined' ? window.location.origin : ''
+    const origin = typeof window !== 'undefined' ? window.location.origin : ''
     return {
       url: `${origin}/api/maptiler-cdn?u=${encodeURIComponent(url)}`,
     }
@@ -233,6 +236,8 @@ export function FlightMap({
   rasterMapId,
   hideBasemapLabels,
   onFollowModeChange,
+  className,
+  mapClassName,
 }: FlightMapProps) {
   const el = useRef<HTMLDivElement | null>(null)
   const map = useRef<maplibregl.Map | null>(null)
@@ -283,8 +288,7 @@ export function FlightMap({
     const tiles = useOfflineRaster
       ? [`${OFF}://{z}/{x}/{y}`]
       : [appMapTileUrlTemplate(rasterMapId)]
-    const useVectorHideLabels =
-      !useOfflineRaster && hideBasemapLabels
+    const useVectorHideLabels = !useOfflineRaster && hideBasemapLabels
     setErr(null)
 
     const startCenter: [number, number] =
@@ -328,9 +332,7 @@ export function FlightMap({
         map.current = m
       } catch (e) {
         if (!cancelled) {
-          setErr(
-            e instanceof Error ? e.message : 'Failed to load map style.',
-          )
+          setErr(e instanceof Error ? e.message : 'Failed to load map style.')
         }
       }
     }
@@ -644,7 +646,7 @@ export function FlightMap({
   ])
 
   return (
-    <div className="relative w-full">
+    <div className={cn('relative w-full', className)}>
       {err && (
         <p className="bg-amber-500/20 text-amber-100 m-0 rounded-t-xl px-3 py-2 text-sm">
           {err}
@@ -655,6 +657,7 @@ export function FlightMap({
         className={cn(
           'h-[min(60vh,520px)] min-h-[320px] w-full rounded-b-xl',
           useOfflineRaster && 'bg-zinc-600',
+          mapClassName,
         )}
       />
       <div className="absolute top-2 left-2 z-10 flex flex-col items-center gap-1">
