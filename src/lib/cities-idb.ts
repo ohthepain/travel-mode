@@ -3,7 +3,7 @@ import { openDB } from 'idb'
 import type { City } from './cities-data'
 
 const DB_NAME = 'travelmode-cities'
-const DB_VER = 1
+const DB_VER = 2
 const STORE = 'catalog'
 const CATALOG_KEY = 'default'
 
@@ -22,7 +22,10 @@ let dbp: Promise<IDBPDatabase<CitiesDB>> | null = null
 function openCitiesDb(): Promise<IDBPDatabase<CitiesDB>> | null {
   if (typeof indexedDB === 'undefined') return null
   dbp ??= openDB<CitiesDB>(DB_NAME, DB_VER, {
-    upgrade(db) {
+    upgrade(db, oldVersion) {
+      if (oldVersion < 2 && db.objectStoreNames.contains(STORE)) {
+        db.deleteObjectStore(STORE)
+      }
       if (!db.objectStoreNames.contains(STORE)) {
         db.createObjectStore(STORE, { keyPath: 'key' })
       }

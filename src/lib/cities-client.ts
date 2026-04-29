@@ -34,10 +34,13 @@ export function parseCitiesJson(data: unknown): City[] {
     }
     if (!/^[A-Z0-9]{3}$/.test(code.trim().toUpperCase())) continue
     if (!/^[A-Z]{2}$/.test(countryCode.trim().toUpperCase())) continue
+    const hasLargeAirport =
+      typeof o.hasLargeAirport === 'boolean' ? o.hasLargeAirport : false
     parsed.push({
       code: code.trim().toUpperCase(),
       name: name.trim(),
       countryCode: countryCode.trim().toUpperCase(),
+      hasLargeAirport,
     })
   }
   return parsed

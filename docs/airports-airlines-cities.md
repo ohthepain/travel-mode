@@ -52,8 +52,10 @@ IndexedDB for airlines was bumped to **version 2** when this schema replaced the
 
 ## Cities
 
-- **Shape:** `CatalogCity` in `#/lib/flight-data` — `{ code, name, countryCode }` (bundled autocomplete; optional coordinates are only on schedule/API `City` rows).
-- **Admin:** `/admin/airports` CSV import produces **`cities.json`** alongside `airports.json` (vote city display names from OurAirports municipalities per resolved city code).
+- **Shape:** `CatalogCity` in `#/lib/flight-data` — `{ code, name, countryCode, hasLargeAirport }`. **`hasLargeAirport`** is derived whenever airports + cities are combined: see `#/lib/catalog-cities-large.applyLargeAirportFlagsToCities` (true if any bundled airport for that `cityCode` has type `large_airport`).
+- **Admin:** `/admin/airports` CSV import writes **`cities.json`** next to **`airports.json`**; city names come from municipality votes, and **`hasLargeAirport`** is filled by `applyLargeAirportFlagsToCities` from the deduped airport list (same as the app).
+- **App load:** `#/lib/location-autocomplete.buildLocationSearchDocs` reapplies `applyLargeAirportFlagsToCities` so autocomplete stays correct even if **`cities.json`** on disk is stale.
+- **Optional file sync:** `scripts/refresh-city-large-airport-flags.mts` rewrites **`cities.json`** on disk from **`airports.json`** (e.g. before commit).
 - **Bundle:** `public/data/cities.json` → `/data/cities.json`
 - **Overrides:** `public/data/air-to-city-code.json` merges on top of `#/lib/airport-metro-city-codes` via `#/lib/catalog-city-resolve`.
-- **Client:** `#/lib/cities-client` + `#/lib/cities-idb` (same cache pattern as airports).
+- **Client:** `#/lib/cities-client` + `#/lib/cities-idb` (IDB v2 resets cache when this shape shipped).

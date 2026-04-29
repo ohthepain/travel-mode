@@ -1,5 +1,6 @@
 import type { CatalogAirport, CatalogCity, IsoCountryCode } from './flight-data'
 import { catalogAirportFacilityRank } from './flight-data'
+import { applyLargeAirportFlagsToCities } from './catalog-cities-large'
 
 export type LocationKind = 'airport' | 'city'
 
@@ -11,6 +12,10 @@ export type LocationSearchDoc = {
   display: string
   /** Only for `airport` — used for ranking. */
   airportType?: string
+  /**
+   * Only for `city` — when true, this city outranks airports at the same relevance tier.
+   */
+  hasLargeAirport?: boolean
 }
 
 function countryLabel(
@@ -25,20 +30,23 @@ export function buildLocationSearchDocs(
   cities: readonly CatalogCity[],
   countriesByCode: ReadonlyMap<string, { name: string }>,
 ): LocationSearchDoc[] {
+  const citiesRanked = applyLargeAirportFlagsToCities(airports, cities)
+
   const cityNameByCode = new Map<string, string>()
-  for (const c of cities) {
+  for (const c of citiesRanked) {
     cityNameByCode.set(c.code, c.name)
   }
 
   const out: LocationSearchDoc[] = []
 
-  for (const c of cities) {
+  for (const c of citiesRanked) {
     const cn = countryLabel(c.countryCode, countriesByCode)
     out.push({
       kind: 'city',
       code: c.code,
       search: `${c.code} ${c.name} ${cn} ${c.countryCode}`.toLowerCase(),
       display: `${c.name}, ${cn} (${c.code})`,
+      hasLargeAirport: c.hasLargeAirport,
     })
   }
 
@@ -70,9 +78,18 @@ function compareLocationRelevance(
     if (ac.startsWith(q0) && !bc.startsWith(q0)) return -1
     if (bc.startsWith(q0) && !ac.startsWith(q0)) return 1
   }
+  if (a.kind === 'city' && b.kind === 'city') {
+    if (a.hasLargeAirport && !b.hasLargeAirport) return -1
+    if (!a.hasLargeAirport && b.hasLargeAirport) return 1
+  }
   if (a.kind !== b.kind) {
-    if (a.kind === 'airport' && b.kind === 'city') return -1
-    if (a.kind === 'city' && b.kind === 'airport') return 1
+    /** Cities over airports only when the metro has a bundled large-airport sibling. */
+    if (a.kind === 'city' && b.kind === 'airport') {
+      return a.hasLargeAirport ? -1 : 1
+    }
+    if (a.kind === 'airport' && b.kind === 'city') {
+      return b.hasLargeAirport ? 1 : -1
+    }
   }
   return a.display.localeCompare(b.display)
 }

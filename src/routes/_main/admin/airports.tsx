@@ -1,17 +1,33 @@
 import { Link, createFileRoute } from '@tanstack/react-router'
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { AirportAutocompleteInput } from '#/components/AirportAutocompleteInput'
+import type { LocationSelection } from '#/components/AirportAutocompleteInput'
 import type { Airport } from '#/lib/airports-data'
-import type { CatalogCity } from '#/lib/flight-data'
+import { airportsList, ensureAirportsLoaded } from '#/lib/airports-client'
+import { citiesList, ensureCitiesLoaded } from '#/lib/cities-client'
 import {
   airportsFromOurAirportsCsv,
   airportsToJsonBlob,
   citiesToJsonBlob,
 } from '#/lib/airports-csv'
-import { ensureAirportsLoaded, airportsList } from '#/lib/airports-client'
+import { countriesByCode, ensureCountriesLoaded } from '#/lib/countries-client'
+import type { CatalogCity } from '#/lib/flight-data'
+import { buildLocationSearchDocs } from '#/lib/location-autocomplete'
+import type { LocationSearchDoc } from '#/lib/location-autocomplete'
 
 export const Route = createFileRoute('/_main/admin/airports')({
   component: AirportsAdminPage,
 })
+
+function filterAirportsByLocation(
+  rows: Airport[],
+  sel: LocationSelection | null,
+): Airport[] {
+  if (!sel) return rows
+  const code = sel.code.trim().toUpperCase()
+  if (sel.kind === 'airport') return rows.filter((a) => a.iata === code)
+  return rows.filter((a) => a.cityCode === code)
+}
 
 function AirportsAdminPage() {
   const [imported, setImported] = useState<{
@@ -22,12 +38,37 @@ function AirportsAdminPage() {
   const [bundleErr, setBundleErr] = useState<string | null>(null)
   const [parseErr, setParseErr] = useState<string | null>(null)
   const [fileName, setFileName] = useState<string | null>(null)
+  const [filterSel, setFilterSel] = useState<LocationSelection | null>(null)
+  const [locationDocs, setLocationDocs] = useState<LocationSearchDoc[]>([])
+
+  useEffect(() => {
+    void Promise.all([
+      ensureCountriesLoaded(),
+      ensureAirportsLoaded(),
+      ensureCitiesLoaded(),
+    ]).then(() => {
+      setLocationDocs(
+        buildLocationSearchDocs(
+          [...airportsList],
+          [...citiesList],
+          countriesByCode,
+        ),
+      )
+    })
+  }, [])
 
   const loadBundled = useCallback(async () => {
     setBundleErr(null)
     try {
       await ensureAirportsLoaded()
       setBundled([...airportsList])
+      setLocationDocs(
+        buildLocationSearchDocs(
+          [...airportsList],
+          [...citiesList],
+          countriesByCode,
+        ),
+      )
     } catch (e) {
       setBundleErr(e instanceof Error ? e.message : 'Failed to load bundle')
       setBundled(null)
@@ -62,9 +103,13 @@ function AirportsAdminPage() {
   }, [])
 
   const shown = imported?.airports ?? bundled ?? []
+  const displayed = useMemo(
+    () => filterAirportsByLocation(shown, filterSel),
+    [shown, filterSel],
+  )
   const headerNote = imported
-    ? `Preview from ${fileName ?? 'CSV'} (${shown.length} airports)`
-    : `Airports in public bundle (${shown.length})`
+    ? `Preview from ${fileName ?? 'CSV'} (${shown.length} airports${filterSel ? `, ${displayed.length} match filter` : ''})`
+    : `Airports in public bundle (${shown.length}${filterSel ? `, ${displayed.length} shown` : ''})`
 
   const downloadAirportsHref = useMemo(() => {
     if (!imported?.airports.length) return null
@@ -167,6 +212,29 @@ function AirportsAdminPage() {
 
         <p className="mb-2 text-sm font-medium text-[var(--sea-ink)]">{headerNote}</p>
 
+        <label className="mb-4 flex max-w-xl flex-col gap-1.5 text-sm font-medium text-[var(--sea-ink)]">
+          Filter table (same catalog as flight search)
+          <div className="flex flex-wrap items-center gap-2">
+            <AirportAutocompleteInput
+              valueSelection={filterSel}
+              onChangeSelection={setFilterSel}
+              docs={locationDocs}
+              placeholder="City or airport…"
+              ariaLabel="Filter airports by location"
+              className="max-w-md"
+            />
+            {filterSel ? (
+              <button
+                type="button"
+                onClick={() => setFilterSel(null)}
+                className="rounded-lg border border-[var(--line)] bg-[var(--chip-bg)] px-3 py-2 text-xs font-medium text-[var(--sea-ink)]"
+              >
+                Clear filter
+              </button>
+            ) : null}
+          </div>
+        </label>
+
         <div className="max-h-[min(28rem,55vh)] overflow-auto rounded-lg border border-[var(--line)]">
           <table className="w-full border-collapse text-left text-sm">
             <thead className="sticky top-0 bg-[var(--header-bg)]">
@@ -181,7 +249,7 @@ function AirportsAdminPage() {
               </tr>
             </thead>
             <tbody>
-              {shown.map((a) => (
+              {displayed.map((a) => (
                 <tr
                   key={a.iata}
                   className="border-b border-[var(--line)]/80 odd:bg-[var(--header-bg)]/40"
@@ -201,6 +269,10 @@ function AirportsAdminPage() {
             <p className="m-0 px-3 py-6 text-center text-sm text-[var(--sea-ink-soft)]">
               No airports yet. Drop a CSV above or add{' '}
               <code className="text-xs">public/data/airports.json</code>.
+            </p>
+          ) : displayed.length === 0 ? (
+            <p className="m-0 px-3 py-6 text-center text-sm text-[var(--sea-ink-soft)]">
+              No airports match this filter. Clear or pick another airport or city.
             </p>
           ) : null}
         </div>

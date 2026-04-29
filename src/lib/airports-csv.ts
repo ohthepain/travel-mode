@@ -1,5 +1,6 @@
 import type { CatalogAirport, CatalogCity, IsoCountryCode } from './flight-data'
 import { catalogAirportFacilityRank } from './flight-data'
+import { applyLargeAirportFlagsToCities } from './catalog-cities-large'
 import { parseCsv } from './csv-parse'
 import { resolveCatalogCityCode } from './catalog-city-resolve'
 
@@ -105,6 +106,7 @@ function catalogCitiesFromVotes(
         code,
         countryCode: st.country,
         name: pickCityName(st.nameVotes),
+        hasLargeAirport: false,
       }),
     )
     .sort((a, b) => a.code.localeCompare(b.code))
@@ -150,7 +152,10 @@ export function airportsFromOurAirportsCsv(
 
     let st = cityVotes.get(cityCode)
     if (!st) {
-      st = { country: raw.isoCountry as IsoCountryCode, nameVotes: new Map() }
+      st = {
+        country: raw.isoCountry,
+        nameVotes: new Map(),
+      }
       cityVotes.set(cityCode, st)
     }
     if (st.country === raw.isoCountry) {
@@ -166,7 +171,7 @@ export function airportsFromOurAirportsCsv(
       iata: raw.iata,
       name: raw.name,
       cityCode,
-      country: raw.isoCountry as IsoCountryCode,
+      country: raw.isoCountry,
       lat: raw.lat,
       lon: raw.lon,
     }
@@ -182,9 +187,11 @@ export function airportsFromOurAirportsCsv(
     .map((x) => x.airport)
     .sort((a, b) => a.iata.localeCompare(b.iata))
 
+  const citiesBare = catalogCitiesFromVotes(cityVotes)
+
   return {
     airports,
-    cities: catalogCitiesFromVotes(cityVotes),
+    cities: applyLargeAirportFlagsToCities(airports, citiesBare),
   }
 }
 

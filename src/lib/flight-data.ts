@@ -24,6 +24,11 @@ export type CatalogCity = {
   code: IataCityCode
   name: string
   countryCode: IsoCountryCode
+  /**
+   * True when at least one bundled airport with this {@link CatalogAirport.cityCode}
+   * has `airportType` `large_airport`. Used to rank autocomplete.
+   */
+  hasLargeAirport: boolean
 }
 
 /**

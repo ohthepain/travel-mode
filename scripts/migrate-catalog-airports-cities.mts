@@ -9,6 +9,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { buildAirportDisplayName } from '../src/lib/airports-csv.ts'
+import { applyLargeAirportFlagsToCities } from '../src/lib/catalog-cities-large.ts'
 import type { CatalogAirport, CatalogCity, IsoCountryCode } from '../src/lib/flight-data.ts'
 import { resolveCatalogCityCode } from '../src/lib/catalog-city-resolve.ts'
 
@@ -80,6 +81,7 @@ function main(): void {
       }
       cityVotes.set(cityCode, st)
     }
+
     if (mun) {
       st.nameVotes.set(mun, (st.nameVotes.get(mun) ?? 0) + 1)
     }
@@ -98,13 +100,16 @@ function main(): void {
 
   next.sort((a, b) => a.iata.localeCompare(b.iata))
 
-  const cities: CatalogCity[] = [...cityVotes.entries()]
+  const citiesBare: CatalogCity[] = [...cityVotes.entries()]
     .map(([code, st]) => ({
       code,
       countryCode: st.country,
       name: pickCityName(st.nameVotes),
+      hasLargeAirport: false,
     }))
     .sort((a, b) => a.code.localeCompare(b.code))
+
+  const cities = applyLargeAirportFlagsToCities(next, citiesBare)
 
   writeFileSync(airportsPath, `${JSON.stringify(next, null, 2)}\n`, 'utf8')
   writeFileSync(
