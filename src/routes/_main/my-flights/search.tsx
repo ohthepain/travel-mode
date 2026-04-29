@@ -21,7 +21,6 @@ type MyFlightsSearchParams = {
   fn?: string
   from?: string
   to?: string
-  page?: number
 }
 
 const YMD = /^\d{4}-\d{2}-\d{2}$/
@@ -65,7 +64,10 @@ function resolveSearchRange(
   return { start: addUtcDays(e, -45), end: e }
 }
 
-function* eachUtcDayInclusive(startYmd: string, endYmd: string): Generator<string> {
+function* eachUtcDayInclusive(
+  startYmd: string,
+  endYmd: string,
+): Generator<string> {
   let t = new Date(startYmd + 'T12:00:00.000Z').getTime()
   const end = new Date(endYmd + 'T12:00:00.000Z').getTime()
   const dayMs = 86400000
@@ -98,14 +100,7 @@ export const Route = createFileRoute('/_main/my-flights/search')({
       typeof search.to === 'string' && /^[A-Za-z]{3}$/.test(search.to)
         ? search.to.toUpperCase()
         : undefined
-    const rawPage = search.page
-    const page =
-      typeof rawPage === 'number' && Number.isFinite(rawPage) && rawPage >= 1
-        ? Math.floor(rawPage)
-        : typeof rawPage === 'string' && /^\d+$/.test(rawPage)
-          ? Math.max(1, parseInt(rawPage, 10))
-          : 1
-    return { df, dt, fn, from, to, page }
+    return { df, dt, fn, from, to }
   },
   component: FlightSearchPage,
 })
@@ -211,6 +206,11 @@ function FlightSearchPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [results, setResults] = useState<SearchHit[] | null>(null)
+  /** How many hits to render; grows as the user scrolls (all data already fetched). */
+  const [visibleCount, setVisibleCount] = useState(RESULTS_PAGE_SIZE)
+  const resultsRef = useRef<SearchHit[] | null>(null)
+  resultsRef.current = results
+  const loadMoreSentinelRef = useRef<HTMLDivElement | null>(null)
   const [addingId, setAddingId] = useState<string | null>(null)
   const [addedFr24Ids, setAddedFr24Ids] = useState(() => new Set<string>())
   const [airportDocs, setAirportDocs] = useState<AirportSearchDoc[]>([])
@@ -257,7 +257,6 @@ function FlightSearchPage() {
           search: (prev) => ({
             ...prev,
             fn: fn || undefined,
-            page: 1,
             df: dfVal || undefined,
             dt: dtVal || undefined,
             from: o || undefined,
@@ -281,11 +280,11 @@ function FlightSearchPage() {
           inRange.sort((a, b) =>
             a.departure.time.localeCompare(b.departure.time),
           )
-          setResults(
-            inRange.map((s) =>
-              scheduleRowToSearchHit(s, s.departure.time.slice(0, 10)),
-            ),
+          const airportHits = inRange.map((s) =>
+            scheduleRowToSearchHit(s, s.departure.time.slice(0, 10)),
           )
+          setResults(airportHits)
+          setVisibleCount(Math.min(RESULTS_PAGE_SIZE, airportHits.length))
           return
         }
 
@@ -316,28 +315,19 @@ function FlightSearchPage() {
             }
           }
         }
-        merged.sort((a, b) =>
-          a.departure.time.localeCompare(b.departure.time),
+        merged.sort((a, b) => a.departure.time.localeCompare(b.departure.time))
+        const fnHits = merged.map((s) =>
+          scheduleRowToSearchHit(s, s.departure.time.slice(0, 10)),
         )
-        setResults(
-          merged.map((s) =>
-            scheduleRowToSearchHit(s, s.departure.time.slice(0, 10)),
-          ),
-        )
+        setResults(fnHits)
+        setVisibleCount(Math.min(RESULTS_PAGE_SIZE, fnHits.length))
       } catch (e) {
         setError(e instanceof Error ? e.message : 'Search failed')
       } finally {
         setLoading(false)
       }
     },
-    [
-      dateFrom,
-      dateTo,
-      flightNumber,
-      destIata,
-      originIata,
-      navigate,
-    ],
+    [dateFrom, dateTo, flightNumber, destIata, originIata, navigate],
   )
 
   const signInReturnPath = useCallback(() => {
@@ -374,7 +364,14 @@ function FlightSearchPage() {
       originIata: urlSearch.from ?? '',
       destIata: urlSearch.to ?? '',
     })
-  }, [urlSearch.df, urlSearch.dt, urlSearch.fn, urlSearch.from, urlSearch.to, executeSearch])
+  }, [
+    urlSearch.df,
+    urlSearch.dt,
+    urlSearch.fn,
+    urlSearch.from,
+    urlSearch.to,
+    executeSearch,
+  ])
 
   const addFlight = useCallback(
     async (hit: SearchHit) => {
@@ -437,31 +434,32 @@ function FlightSearchPage() {
     [session.data?.user],
   )
 
-  const totalPages =
-    results && results.length > 0
-      ? Math.max(1, Math.ceil(results.length / RESULTS_PAGE_SIZE))
-      : 1
-  const effectivePage = Math.min(
-    Math.max(1, urlSearch.page ?? 1),
-    totalPages,
-  )
-  const pageHits =
-    results?.slice(
-      (effectivePage - 1) * RESULTS_PAGE_SIZE,
-      effectivePage * RESULTS_PAGE_SIZE,
-    ) ?? []
+  useEffect(() => {
+    const el = loadMoreSentinelRef.current
+    if (!el) return
 
-  const setResultsPage = useCallback(
-    (next: number) => {
-      const p = Math.min(Math.max(1, next), totalPages)
-      void navigate({
-        to: '/my-flights/search',
-        replace: true,
-        search: (prev) => ({ ...prev, page: p }),
-      })
-    },
-    [navigate, totalPages],
-  )
+    const obs = new IntersectionObserver(
+      (entries) => {
+        const entry = entries[0]
+        if (!entry.isIntersecting || loading) return
+        const r = resultsRef.current
+        if (!r?.length) return
+        setVisibleCount((v) => {
+          if (v >= r.length) return v
+          return Math.min(v + RESULTS_PAGE_SIZE, r.length)
+        })
+      },
+      { root: null, rootMargin: '180px', threshold: 0 },
+    )
+    obs.observe(el)
+    return () => obs.disconnect()
+  }, [results, loading])
+
+  const displayedHits = results?.slice(0, visibleCount) ?? []
+  const hasMore =
+    !!results?.length &&
+    visibleCount < results.length &&
+    !loading
 
   return (
     <main className="mx-auto w-full max-w-lg px-3 pb-10 pt-6 sm:max-w-xl sm:px-4">
@@ -486,17 +484,9 @@ function FlightSearchPage() {
 
       <div className="mb-6 flex flex-col gap-4">
         <label className="flex flex-col gap-1.5 text-sm font-medium text-(--sea-ink)">
-          Flight number (optional if you pick airports)
-          <input
-            value={flightNumber}
-            onChange={(e) => setFlightNumber(e.target.value.toUpperCase())}
-            placeholder="D84322 / NSZ4322"
-            className="rounded-lg border border-(--line) bg-(--chip-bg) px-3 py-2 font-mono font-normal tracking-wide"
-          />
-        </label>
-        <label className="flex flex-col gap-1.5 text-sm font-medium text-(--sea-ink)">
           <span>
-            Departure and arrival airport (optional) — search by city, airport name, or IATA code
+            Departure and arrival airport (optional) — search by city, airport
+            name, or IATA code
           </span>
           <div className="flex flex-wrap items-start gap-2 sm:max-w-md">
             <AirportAutocompleteInput
@@ -516,6 +506,15 @@ function FlightSearchPage() {
             />
           </div>
         </label>
+        <label className="flex flex-col gap-1.5 text-sm font-medium text-(--sea-ink)">
+          Or ... Flight number
+          <input
+            value={flightNumber}
+            onChange={(e) => setFlightNumber(e.target.value.toUpperCase())}
+            placeholder="D84322 / NSZ4322"
+            className="rounded-lg border border-(--line) bg-(--chip-bg) px-3 py-2 font-mono font-normal tracking-wide"
+          />
+        </label>{' '}
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <label className="flex flex-col gap-1.5 text-sm font-medium text-(--sea-ink)">
             Start date (optional, UTC)
@@ -570,163 +569,136 @@ function FlightSearchPage() {
         <>
           <p className="text-(--muted) mb-3 text-sm tabular-nums">
             {results.length} result{results.length === 1 ? '' : 's'}
-            {totalPages > 1
-              ? ` · Page ${effectivePage} of ${totalPages}`
+            {hasMore
+              ? ` · Showing ${visibleCount} of ${results.length}`
               : ''}
           </p>
           <ul className="m-0 flex list-none flex-col gap-3 p-0">
-            {pageHits.map((hit) => {
-            const canOpen = hasFlightInfo(hit)
-            const isAdded = addedFr24Ids.has(hit.fr24FlightId)
-            const rowMain = (
-              <>
-                <p className="flex items-center gap-2 font-mono text-base font-bold tracking-wider text-(--sea-ink)">
-                  <MapPackStatusIndicator
-                    flightNumber={hit.flightNumber}
-                    travelDate={hit.travelDate}
-                  />
-                  {flightAlreadySynced(hit) ? (
-                    <Check
-                      className="size-4 shrink-0 text-emerald-600 dark:text-emerald-400"
-                      aria-hidden
+            {displayedHits.map((hit) => {
+              const canOpen = hasFlightInfo(hit)
+              const isAdded = addedFr24Ids.has(hit.fr24FlightId)
+              const rowMain = (
+                <>
+                  <p className="flex items-center gap-2 font-mono text-base font-bold tracking-wider text-(--sea-ink)">
+                    <MapPackStatusIndicator
+                      flightNumber={hit.flightNumber}
+                      travelDate={hit.travelDate}
                     />
-                  ) : hit.syncStatus.jobActive ? (
-                    <Loader2
-                      className="size-4 shrink-0 animate-spin text-cyan-600 dark:text-cyan-400"
-                      aria-hidden
-                    />
-                  ) : (
-                    <Timer
-                      className="text-(--muted) size-4 shrink-0"
-                      aria-hidden
-                    />
-                  )}
-                  <span>{hit.flightNumber}</span>
-                </p>
-                <p className="text-(--sea-ink) m-0 mt-0.5 font-mono text-sm tracking-wide">
-                  {hit.originIata && hit.destIata
-                    ? `${hit.originIata} → ${hit.destIata}`
-                    : '—'}
-                </p>
-                {(hit.scheduledDeparture ||
-                  hit.takeoffAt ||
-                  hit.scheduledArrival) && (
-                  <p className="text-(--muted) m-0 mt-1 font-mono text-xs tabular-nums">
-                    {(() => {
-                      const dep = hit.scheduledDeparture ?? hit.takeoffAt
-                      const arr = hit.scheduledArrival
-                      const depL = dep
-                        ? new Date(dep).toLocaleString(undefined, {
-                            dateStyle: 'medium',
-                            timeStyle: 'short',
-                          })
-                        : ''
-                      const arrL = arr
-                        ? new Date(arr).toLocaleString(undefined, {
-                            dateStyle: 'medium',
-                            timeStyle: 'short',
-                          })
-                        : ''
-                      if (depL && arrL) return `${depL} – ${arrL}`
-                      return depL || arrL
-                    })()}
-                  </p>
-                )}
-              </>
-            )
-            const rowMainClass = cn(
-              'min-w-0 flex-1 p-4',
-              canOpen &&
-                'rounded-l-xl hover:bg-black/3 dark:hover:bg-white/4 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-cyan-500',
-            )
-
-            return (
-              <li
-                key={hit.fr24FlightId}
-                className="flex flex-wrap items-stretch rounded-xl border border-(--line) bg-(--chip-bg) p-0"
-              >
-                {canOpen ? (
-                  <Link
-                    to="/flight/$flightNumber"
-                    params={{
-                      flightNumber: hit.flightNumber.replace(/\s+/g, ''),
-                    }}
-                    search={{ date: hit.travelDate }}
-                    className={cn(rowMainClass, 'text-inherit no-underline')}
-                  >
-                    {rowMain}
-                  </Link>
-                ) : (
-                  <div className={rowMainClass}>{rowMain}</div>
-                )}
-                <div className="flex shrink-0 items-center p-4 pl-2 max-sm:grow max-sm:justify-end">
-                  <button
-                    type="button"
-                    disabled={
-                      addingId === hit.fr24FlightId ||
-                      !hasFlightInfo(hit) ||
-                      isAdded
-                    }
-                    onClick={(e) => {
-                      e.preventDefault()
-                      e.stopPropagation()
-                      if (!session.data?.user) {
-                        void navigate({
-                          to: '/sign-in',
-                          search: { redirect: signInReturnPath() },
-                        })
-                        return
-                      }
-                      void addFlight(hit)
-                    }}
-                    className={cn(
-                      'shrink-0 rounded-lg border border-(--chip-line) px-3 py-2 text-sm font-semibold',
-                      'bg-(--sea-ink) text-(--header-bg) hover:opacity-90',
-                      'disabled:cursor-not-allowed disabled:opacity-45',
+                    {flightAlreadySynced(hit) ? (
+                      <Check
+                        className="size-4 shrink-0 text-emerald-600 dark:text-emerald-400"
+                        aria-hidden
+                      />
+                    ) : hit.syncStatus.jobActive ? (
+                      <Loader2
+                        className="size-4 shrink-0 animate-spin text-cyan-600 dark:text-cyan-400"
+                        aria-hidden
+                      />
+                    ) : (
+                      <Timer
+                        className="text-(--muted) size-4 shrink-0"
+                        aria-hidden
+                      />
                     )}
-                  >
-                    {!hasFlightInfo(hit)
-                      ? 'Waiting'
-                      : addingId === hit.fr24FlightId
-                        ? 'Adding…'
-                        : isAdded
-                          ? 'Added'
-                          : 'Add'}
-                  </button>
-                </div>
-              </li>
-            )
-          })}
-        </ul>
-          {totalPages > 1 && (
-            <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-              <button
-                type="button"
-                disabled={effectivePage <= 1}
-                onClick={() => setResultsPage(effectivePage - 1)}
-                className={cn(
-                  'rounded-lg border border-(--line) px-3 py-2 text-sm font-semibold',
-                  'bg-(--chip-bg) hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40',
-                )}
-              >
-                Previous
-              </button>
-              <span className="text-(--muted) text-sm tabular-nums">
-                {effectivePage} / {totalPages}
-              </span>
-              <button
-                type="button"
-                disabled={effectivePage >= totalPages}
-                onClick={() => setResultsPage(effectivePage + 1)}
-                className={cn(
-                  'rounded-lg border border-(--line) px-3 py-2 text-sm font-semibold',
-                  'bg-(--chip-bg) hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40',
-                )}
-              >
-                Next
-              </button>
-            </div>
-          )}
+                    <span>{hit.flightNumber}</span>
+                  </p>
+                  <p className="text-(--sea-ink) m-0 mt-0.5 font-mono text-sm tracking-wide">
+                    {hit.originIata && hit.destIata
+                      ? `${hit.originIata} → ${hit.destIata}`
+                      : '—'}
+                  </p>
+                  {(hit.scheduledDeparture ||
+                    hit.takeoffAt ||
+                    hit.scheduledArrival) && (
+                    <p className="text-(--muted) m-0 mt-1 font-mono text-xs tabular-nums">
+                      {(() => {
+                        const dep = hit.scheduledDeparture ?? hit.takeoffAt
+                        const arr = hit.scheduledArrival
+                        const depL = dep
+                          ? new Date(dep).toLocaleString(undefined, {
+                              dateStyle: 'medium',
+                              timeStyle: 'short',
+                            })
+                          : ''
+                        const arrL = arr
+                          ? new Date(arr).toLocaleString(undefined, {
+                              dateStyle: 'medium',
+                              timeStyle: 'short',
+                            })
+                          : ''
+                        if (depL && arrL) return `${depL} – ${arrL}`
+                        return depL || arrL
+                      })()}
+                    </p>
+                  )}
+                </>
+              )
+              const rowMainClass = cn(
+                'min-w-0 flex-1 p-4',
+                canOpen &&
+                  'rounded-l-xl hover:bg-black/3 dark:hover:bg-white/4 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-cyan-500',
+              )
+
+              return (
+                <li
+                  key={hit.fr24FlightId}
+                  className="flex flex-wrap items-stretch rounded-xl border border-(--line) bg-(--chip-bg) p-0"
+                >
+                  {canOpen ? (
+                    <Link
+                      to="/flight/$flightNumber"
+                      params={{
+                        flightNumber: hit.flightNumber.replace(/\s+/g, ''),
+                      }}
+                      search={{ date: hit.travelDate }}
+                      className={cn(rowMainClass, 'text-inherit no-underline')}
+                    >
+                      {rowMain}
+                    </Link>
+                  ) : (
+                    <div className={rowMainClass}>{rowMain}</div>
+                  )}
+                  <div className="flex shrink-0 items-center p-4 pl-2 max-sm:grow max-sm:justify-end">
+                    <button
+                      type="button"
+                      disabled={
+                        addingId === hit.fr24FlightId ||
+                        !hasFlightInfo(hit) ||
+                        isAdded
+                      }
+                      onClick={(e) => {
+                        e.preventDefault()
+                        e.stopPropagation()
+                        if (!session.data?.user) {
+                          void navigate({
+                            to: '/sign-in',
+                            search: { redirect: signInReturnPath() },
+                          })
+                          return
+                        }
+                        void addFlight(hit)
+                      }}
+                      className={cn(
+                        'shrink-0 rounded-lg border border-(--chip-line) px-3 py-2 text-sm font-semibold',
+                        'bg-(--sea-ink) text-(--header-bg) hover:opacity-90',
+                        'disabled:cursor-not-allowed disabled:opacity-45',
+                      )}
+                    >
+                      {!hasFlightInfo(hit)
+                        ? 'Waiting'
+                        : addingId === hit.fr24FlightId
+                          ? 'Adding…'
+                          : isAdded
+                            ? 'Added'
+                            : 'Add'}
+                    </button>
+                  </div>
+                </li>
+              )
+            })}
+          </ul>
+          {/* Sentinel for infinite scroll; extra rows reveal when scrolled into view. */}
+          <div ref={loadMoreSentinelRef} className="h-1 w-full shrink-0" />
         </>
       )}
     </main>

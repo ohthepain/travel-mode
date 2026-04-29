@@ -1,5 +1,4 @@
 import { useRouterState } from '@tanstack/react-router'
-import Footer from './Footer'
 import Header from './Header'
 
 const NO_CHROME = new Set(['/sign-in', '/reset-password'])
@@ -14,7 +13,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     <>
       <Header />
       {children}
-      <Footer />
     </>
   )
 }
