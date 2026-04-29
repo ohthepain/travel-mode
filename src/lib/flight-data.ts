@@ -16,6 +16,52 @@ export type City = {
   longitude: number
 }
 
+/**
+ * Static airport rows from OurAirports-derived JSON (`public/data/airports.json`).
+ * Distinct from schedule/API {@link Airport}.
+ */
+export type CatalogAirport = {
+  displayName: string
+  /**
+   * OurAirports CSV `type` (e.g. `large_airport`, `medium_airport`, `seaplane_base`);
+   * excluded facility kinds never appear in the bundle.
+   */
+  airportType: string
+  /** IATA location code */
+  iata: string
+  name: string
+  city: string
+  country: IsoCountryCode
+  lat: number
+  lon: number
+}
+
+/** Static airline rows from OpenFlights-derived JSON (`public/data/airlines.json`). */
+export type CatalogAirline = {
+  /** IATA airline designator */
+  iata: string
+  name: string
+  country: IsoCountryCode
+}
+
+/**
+ * Tie-break weight for OurAirports facility `type`: larger = prefer in dedupe and autocomplete.
+ * Matches CSV import dedupe order in `#/lib/airports-csv`.
+ */
+export function catalogAirportFacilityRank(facilityType: string): number {
+  switch (facilityType) {
+    case 'large_airport':
+      return 4
+    case 'medium_airport':
+      return 3
+    case 'seaplane_base':
+      return 2
+    default:
+      return 1
+  }
+}
+
+/** Schedule / API airport (vendor-neutral). Distinct from {@link CatalogAirport}. */
 export type Airport = {
   iataCode: IataAirportCode
   icaoCode?: string
@@ -26,9 +72,10 @@ export type Airport = {
   lon: number
 }
 
+/** Schedule / API airline. Distinct from {@link CatalogAirline}. */
 export type Airline = {
   iataCode: IataAirlineCode
-  icaoCode?: string
+ icaoCode?: string
   name: string
   countryCode: IsoCountryCode
 }

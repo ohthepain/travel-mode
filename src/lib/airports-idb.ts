@@ -3,7 +3,7 @@ import { openDB } from 'idb'
 import type { Airport } from './airports-data'
 
 const DB_NAME = 'travelmode-airports'
-const DB_VER = 1
+const DB_VER = 2
 const STORE = 'catalog'
 const CATALOG_KEY = 'default'
 
@@ -22,8 +22,12 @@ let dbp: Promise<IDBPDatabase<AirportsDB>> | null = null
 function openAirportsDb(): Promise<IDBPDatabase<AirportsDB>> | null {
   if (typeof indexedDB === 'undefined') return null
   dbp ??= openDB<AirportsDB>(DB_NAME, DB_VER, {
-    upgrade(db) {
-      if (!db.objectStoreNames.contains(STORE)) {
+    upgrade(db, oldVersion) {
+      /* v2: Airport gains airportType — reset cache from v1 */
+      if (oldVersion < 2) {
+        if (db.objectStoreNames.contains(STORE)) {
+          db.deleteObjectStore(STORE)
+        }
         db.createObjectStore(STORE, { keyPath: 'key' })
       }
     },

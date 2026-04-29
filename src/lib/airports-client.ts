@@ -26,6 +26,8 @@ export function parseAirportsJson(data: unknown): Airport[] {
     const city = o.city
     const country = o.country
     const displayName = o.displayName
+    const airportType =
+      typeof o.airportType === 'string' ? o.airportType : ''
     const lat = o.lat
     const lon = o.lon
     if (
@@ -45,6 +47,7 @@ export function parseAirportsJson(data: unknown): Airport[] {
       city,
       country,
       displayName,
+      airportType,
       lat,
       lon,
     })

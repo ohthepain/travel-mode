@@ -6,7 +6,7 @@ import {
   fetchRoutesByAirlineAndFlight,
   fetchSchedulesByFlightIata,
 } from './client'
-import type { AirlabsRouteRow, AirlabsScheduleRow } from './api-types'
+import type { AirlabsLiveFlightRow, AirlabsRouteRow, AirlabsScheduleRow } from './api-types'
 
 const DAY: readonly string[] = [
   'sun',
@@ -134,6 +134,111 @@ function scheduleRowToFS(
     duration: typeof r.duration === 'number' ? r.duration : undefined,
     aircraft: undefined,
     source,
+    fetchedAt,
+  }
+}
+
+function pickUtcTimeString(
+  r: Record<string, unknown>,
+  keys: readonly string[],
+): string | null {
+  for (const k of keys) {
+    const v = r[k]
+    if (typeof v === 'string' && v.trim() !== '') return v.trim()
+  }
+  return null
+}
+
+/** Timetable row from `GET /schedules` (used by airport-filtered flight-schedule API). */
+export function airlabsScheduleRowToFlightSchedule(
+  r: AirlabsScheduleRow,
+  fetchedAt: string,
+  flightIata: string,
+): FlightSchedule | null {
+  return scheduleRowToFS(r, fetchedAt, 'airlabs', flightIata)
+}
+
+/**
+ * Maps a live `/flights` ADS-B row when departure/arrival UTC timestamps exist on the payload.
+ */
+export function airlabsLiveFlightRowToFlightSchedule(
+  r: AirlabsLiveFlightRow,
+  fetchedAt: string,
+  expectedFlightIata?: string,
+): FlightSchedule | null {
+  const rec = r as Record<string, unknown>
+  const fi =
+    typeof r.flight_iata === 'string'
+      ? r.flight_iata.replace(/\s+/g, '').toUpperCase()
+      : ''
+  if (expectedFlightIata) {
+    const want = expectedFlightIata.replace(/\s+/g, '').toUpperCase()
+    if (fi && fi !== want) return null
+  }
+  const depI = typeof r.dep_iata === 'string' ? r.dep_iata.trim() : ''
+  const arrI = typeof r.arr_iata === 'string' ? r.arr_iata.trim() : ''
+  if (!depI || !arrI) return null
+
+  const depS =
+    pickUtcTimeString(rec, [
+      'dep_actual_utc',
+      'dep_estimated_utc',
+      'dep_time_utc',
+    ]) ?? ''
+  const arrS =
+    pickUtcTimeString(rec, [
+      'arr_actual_utc',
+      'arr_estimated_utc',
+      'arr_time_utc',
+    ]) ?? ''
+
+  if (!depS || !arrS) return null
+
+  const depX = parseScheduleUtc(depS)
+  if (!depX) return null
+  const depD = depX.d
+
+  let arrD: Date
+  const arrX = parseScheduleUtc(arrS)
+  if (arrX) {
+    arrD = arrX.d
+  } else {
+    const ymd0 = depD.toISOString().slice(0, 10)
+    const t = parseHmOnDateUtc(ymd0, arrS)
+    if (!t) return null
+    let ad = t
+    if (minutesOfDay(ad) < minutesOfDay(depD)) {
+      ad = new Date(ad.getTime() + 24 * 3600 * 1000)
+    }
+    arrD = ad
+  }
+
+  const fnOut =
+    fi ||
+    (typeof r.flight_number === 'string' && typeof r.airline_iata === 'string'
+      ? `${r.airline_iata}${r.flight_number}`.replace(/\s+/g, '').toUpperCase()
+      : '')
+  if (!fnOut) return null
+
+  const pNum = parseFlightIata(fnOut)
+  const airlineCode =
+    (typeof r.airline_iata === 'string' && r.airline_iata.trim() !== ''
+      ? r.airline_iata.trim()
+      : pNum.ok
+        ? pNum.airlineIata
+        : 'XX')
+
+  return {
+    flightNumber: fnOut,
+    airlineCode,
+    departure: { airport: depI, time: depD.toISOString() },
+    arrival: { airport: arrI, time: arrD.toISOString() },
+    duration: undefined,
+    aircraft:
+      typeof (r as { aircraft_icao?: string }).aircraft_icao === 'string'
+        ? String((r as { aircraft_icao?: string }).aircraft_icao)
+        : undefined,
+    source: 'airlabs',
     fetchedAt,
   }
 }

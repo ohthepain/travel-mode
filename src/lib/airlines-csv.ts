@@ -1,4 +1,4 @@
-import type { Airline } from './airlines-data'
+import type { CatalogAirline } from './flight-data'
 import { openFlightsCountryToIso } from './openflights-country-to-iso'
 import { parseCsv } from './csv-parse'
 
@@ -43,7 +43,7 @@ function completeness(isoCountry: string, icao: string): number {
  * Keeps `Active === Y`, requires valid 2-char IATA, resolves country to ISO when possible.
  * Dedupes by IATA (prefers resolved country + ICAO completeness; ties → lower AirlineID).
  */
-export function airlinesFromOpenFlightsDat(text: string): Airline[] {
+export function airlinesFromOpenFlightsDat(text: string): CatalogAirline[] {
   const bomStripped = text.replace(/^\uFEFF/, '')
   const rows = parseCsv(bomStripped.trimEnd())
   if (rows.length === 0) return []
@@ -51,7 +51,10 @@ export function airlinesFromOpenFlightsDat(text: string): Airline[] {
   let start = 0
   if (rows[0] && looksLikeHeaderRow(rows[0])) start = 1
 
-  const best = new Map<string, { score: number; sourceId: number; row: Airline }>()
+  const best = new Map<
+    string,
+    { score: number; sourceId: number; row: CatalogAirline }
+  >()
 
   for (let r = start; r < rows.length; r++) {
     const cols = rows[r]
@@ -73,7 +76,7 @@ export function airlinesFromOpenFlightsDat(text: string): Airline[] {
     const country = openFlightsCountryToIso(countryRaw)
     if (!country) continue
 
-    const row: Airline = { iata, name, country }
+    const row: CatalogAirline = { iata, name, country }
 
     const score = completeness(country, icao)
     const prev = best.get(iata)
@@ -91,7 +94,7 @@ export function airlinesFromOpenFlightsDat(text: string): Airline[] {
     .sort((a, b) => a.iata.localeCompare(b.iata) || a.name.localeCompare(b.name))
 }
 
-export function airlinesToJsonBlob(airlines: Airline[]): Blob {
+export function airlinesToJsonBlob(airlines: CatalogAirline[]): Blob {
   return new Blob([`${JSON.stringify(airlines, null, 2)}\n`], {
     type: 'application/json',
   })

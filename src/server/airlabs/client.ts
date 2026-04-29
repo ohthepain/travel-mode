@@ -1,5 +1,9 @@
 import type { Airline, Airport, City } from '../../lib/flight-data'
-import type { AirlabsRouteRow, AirlabsScheduleRow } from './api-types'
+import type {
+  AirlabsLiveFlightRow,
+  AirlabsRouteRow,
+  AirlabsScheduleRow,
+} from './api-types'
 
 const BASE = 'https://airlabs.co/api/v9'
 
@@ -81,6 +85,117 @@ export async function fetchSchedulesByFlightIata(
     limit,
   })
   return extractArray<AirlabsScheduleRow>(data)
+}
+
+/** Real-time radar rows for a departure → arrival trunk (optionally narrowed by flight IATA number). */
+export async function fetchFlightsDepArr(
+  depIata: string,
+  arrIata: string,
+  opts?: { flightIata?: string; limit?: number },
+): Promise<AirlabsLiveFlightRow[]> {
+  const params: Record<string, string | number | undefined> = {
+    dep_iata: depIata,
+    arr_iata: arrIata,
+    limit: opts?.limit ?? 100,
+  }
+  if (opts?.flightIata) params.flight_iata = opts.flightIata
+  const data = await airlabsFetchJson<unknown>('/flights', params)
+  return extractArray<AirlabsLiveFlightRow>(data)
+}
+
+/** Schedules narrowed by airports + flight; use departure-only or arrival-only endpoints per AirLabs. */
+export async function fetchSchedulesDepFlight(
+  depIata: string,
+  flightIata: string,
+  limit = 500,
+): Promise<AirlabsScheduleRow[]> {
+  const data = await airlabsFetchJson<unknown>('/schedules', {
+    dep_iata: depIata,
+    flight_iata: flightIata,
+    limit,
+  })
+  return extractArray<AirlabsScheduleRow>(data)
+}
+
+/** All departures from an airport (no `flight_iata` filter). */
+export async function fetchSchedulesDepOnly(
+  depIata: string,
+  limit = 500,
+): Promise<AirlabsScheduleRow[]> {
+  const data = await airlabsFetchJson<unknown>('/schedules', {
+    dep_iata: depIata,
+    limit,
+  })
+  return extractArray<AirlabsScheduleRow>(data)
+}
+
+export async function fetchSchedulesArrFlight(
+  arrIata: string,
+  flightIata: string,
+  limit = 500,
+): Promise<AirlabsScheduleRow[]> {
+  const data = await airlabsFetchJson<unknown>('/schedules', {
+    arr_iata: arrIata,
+    flight_iata: flightIata,
+    limit,
+  })
+  return extractArray<AirlabsScheduleRow>(data)
+}
+
+/** All arrivals at an airport (no `flight_iata` filter). */
+export async function fetchSchedulesArrOnly(
+  arrIata: string,
+  limit = 500,
+): Promise<AirlabsScheduleRow[]> {
+  const data = await airlabsFetchJson<unknown>('/schedules', {
+    arr_iata: arrIata,
+    limit,
+  })
+  return extractArray<AirlabsScheduleRow>(data)
+}
+
+/** Try route + flight on schedules (timetable). Falls back callers may use dep-only + client filter if API rejects dual airport query. */
+export async function fetchSchedulesDepArrFlight(
+  depIata: string,
+  arrIata: string,
+  flightIata: string,
+  limit = 500,
+): Promise<AirlabsScheduleRow[]> {
+  try {
+    const data = await airlabsFetchJson<unknown>('/schedules', {
+      dep_iata: depIata,
+      arr_iata: arrIata,
+      flight_iata: flightIata,
+      limit,
+    })
+    return extractArray<AirlabsScheduleRow>(data)
+  } catch {
+    const fallback = await fetchSchedulesDepFlight(depIata, flightIata, limit)
+    return fallback.filter(
+      (r) => String(r.arr_iata ?? '').toUpperCase() === arrIata,
+    )
+  }
+}
+
+/** Route timetable without narrowing by flight. */
+export async function fetchSchedulesDepArrNoFlight(
+  depIata: string,
+  arrIata: string,
+  limit = 500,
+): Promise<AirlabsScheduleRow[]> {
+  try {
+    const data = await airlabsFetchJson<unknown>('/schedules', {
+      dep_iata: depIata,
+      arr_iata: arrIata,
+      limit,
+    })
+    return extractArray<AirlabsScheduleRow>(data)
+  } catch {
+    const dep = await fetchSchedulesDepOnly(depIata, limit)
+    return dep.filter(
+      (r) => String(r.arr_iata ?? '').toUpperCase() === arrIata,
+    )
+  }
 }
 
 export async function fetchRoutesByAirlineAndFlight(

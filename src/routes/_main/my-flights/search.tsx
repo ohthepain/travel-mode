@@ -11,7 +11,7 @@ import { ensureCountriesLoaded } from '#/lib/countries-client'
 import { AirportAutocompleteInput } from '../../../components/AirportAutocompleteInput'
 import { MapPackStatusIndicator } from '../../../components/MapPackStatusIndicator'
 import { cn } from '../../../lib/cn'
-import type { FlightSchedule } from '../../../lib/flight-data'
+import type { CatalogAirport, FlightSchedule } from '../../../lib/flight-data'
 
 type MyFlightsSearchParams = {
   /** @deprecated use df/dt */
@@ -159,13 +159,19 @@ function hasFlightInfo(hit: SearchHit): boolean {
   return Boolean(hit.originIata && hit.destIata && dep)
 }
 
-async function fetchSchedulesForDay(
-  flightNum: string,
-  ymd: string,
-): Promise<ScheduleApiItem[]> {
+async function fetchFlightScheduleApi(params: {
+  flightNumber?: string
+  /** YYYY-MM-DD when using per-day lookups (no airport filter). */
+  date?: string
+  dep_iata?: string
+  arr_iata?: string
+}): Promise<ScheduleApiItem[]> {
   const u = new URL('/api/flight-schedule', window.location.origin)
-  u.searchParams.set('flightNumber', flightNum)
-  u.searchParams.set('date', ymd)
+  const fn = params.flightNumber?.trim()
+  if (fn) u.searchParams.set('flightNumber', fn)
+  if (params.date) u.searchParams.set('date', params.date)
+  if (params.dep_iata) u.searchParams.set('dep_iata', params.dep_iata)
+  if (params.arr_iata) u.searchParams.set('arr_iata', params.arr_iata)
   const r = await fetch(u)
   const text = await r.text()
   if (!r.ok) {
@@ -180,6 +186,17 @@ async function fetchSchedulesForDay(
   }
   const j = JSON.parse(text) as { schedules?: ScheduleApiItem[] }
   return Array.isArray(j.schedules) ? j.schedules : []
+}
+
+function filterSchedulesByUtcYmdRange(
+  rows: ScheduleApiItem[],
+  startYmd: string,
+  endYmd: string,
+): ScheduleApiItem[] {
+  return rows.filter((s) => {
+    const ymd = s.departure.time.slice(0, 10)
+    return ymd >= startYmd && ymd <= endYmd
+  })
 }
 
 function FlightSearchPage() {
@@ -205,7 +222,9 @@ function FlightSearchPage() {
       ensureCountriesLoaded(),
       ensureAirportsLoaded(),
     ]).then(() => {
-      setAirportDocs(buildAirportSearchDocs([...airportsList]))
+      setAirportDocs(
+        buildAirportSearchDocs([...airportsList] satisfies CatalogAirport[]),
+      )
     })
   }, [])
 
@@ -220,12 +239,14 @@ function FlightSearchPage() {
       const dfVal = (overrides?.dateFrom ?? dateFrom).trim()
       const dtVal = (overrides?.dateTo ?? dateTo).trim()
       const fn = (overrides?.flightNumber ?? flightNumber).trim().toUpperCase()
-      if (!fn) {
-        setError('Enter a flight number.')
-        return
-      }
       const o = (overrides?.originIata ?? originIata).trim().toUpperCase()
       const d = (overrides?.destIata ?? destIata).trim().toUpperCase()
+      if (!fn && !o && !d) {
+        setError(
+          'Enter a flight number, or pick at least one airport (from and/or to).',
+        )
+        return
+      }
       setError(null)
       setLoading(true)
       setResults(null)
@@ -235,7 +256,7 @@ function FlightSearchPage() {
           replace: true,
           search: (prev) => ({
             ...prev,
-            fn,
+            fn: fn || undefined,
             page: 1,
             df: dfVal || undefined,
             dt: dtVal || undefined,
@@ -248,6 +269,33 @@ function FlightSearchPage() {
       }
       try {
         const { start, end } = resolveSearchRange(dfVal, dtVal)
+
+        /** AirLabs: `/flights` + `/schedules` by airport (`dep_iata` / `arr_iata`) when set. */
+        if (o || d) {
+          const raw = await fetchFlightScheduleApi({
+            ...(fn ? { flightNumber: fn } : {}),
+            ...(o ? { dep_iata: o } : {}),
+            ...(d ? { arr_iata: d } : {}),
+          })
+          const inRange = filterSchedulesByUtcYmdRange(raw, start, end)
+          inRange.sort((a, b) =>
+            a.departure.time.localeCompare(b.departure.time),
+          )
+          setResults(
+            inRange.map((s) =>
+              scheduleRowToSearchHit(s, s.departure.time.slice(0, 10)),
+            ),
+          )
+          return
+        }
+
+        if (!fn) {
+          setError(
+            'Enter a flight number to search by date without airport filters.',
+          )
+          return
+        }
+
         const days = [...eachUtcDayInclusive(start, end)]
         const BATCH = 5
         const seen = new Set<string>()
@@ -255,15 +303,12 @@ function FlightSearchPage() {
         for (let i = 0; i < days.length; i += BATCH) {
           const slice = days.slice(i, i + BATCH)
           const batches = await Promise.all(
-            slice.map((ymd) => fetchSchedulesForDay(fn, ymd)),
+            slice.map((ymd) =>
+              fetchFlightScheduleApi({ flightNumber: fn, date: ymd }),
+            ),
           )
-          for (const raw of batches) {
-            const filtered = raw.filter((s) => {
-              if (o && s.departure.airport.toUpperCase() !== o) return false
-              if (d && s.arrival.airport.toUpperCase() !== d) return false
-              return true
-            })
-            for (const s of filtered) {
+          for (const batch of batches) {
+            for (const s of batch) {
               const k = `${s.departure.time}|${s.departure.airport}|${s.arrival.airport}`
               if (seen.has(k)) continue
               seen.add(k)
@@ -311,20 +356,21 @@ function FlightSearchPage() {
   }, [dateFrom, dateTo, flightNumber, originIata, destIata])
 
   useEffect(() => {
-    const fn = urlSearch.fn?.trim()
-    if (!fn) return
-    const key = `${urlSearch.df ?? ''}|${urlSearch.dt ?? ''}|${fn}|${urlSearch.from ?? ''}|${urlSearch.to ?? ''}`
+    const fnTrim = urlSearch.fn?.trim()
+    const hasAir = !!(urlSearch.from ?? urlSearch.to)
+    if (!fnTrim && !hasAir) return
+    const key = `${urlSearch.df ?? ''}|${urlSearch.dt ?? ''}|${fnTrim ?? ''}|${urlSearch.from ?? ''}|${urlSearch.to ?? ''}`
     if (lastBootstrapKey.current === key) return
     lastBootstrapKey.current = key
     setDateFrom(urlSearch.df ?? '')
     setDateTo(urlSearch.dt ?? '')
-    setFlightNumber(fn)
-    if (urlSearch.from) setOriginIata(urlSearch.from)
-    if (urlSearch.to) setDestIata(urlSearch.to)
+    setFlightNumber(fnTrim ?? '')
+    setOriginIata(urlSearch.from ?? '')
+    setDestIata(urlSearch.to ?? '')
     void executeSearch({
       dateFrom: urlSearch.df ?? '',
       dateTo: urlSearch.dt ?? '',
-      flightNumber: fn,
+      flightNumber: fnTrim ?? '',
       originIata: urlSearch.from ?? '',
       destIata: urlSearch.to ?? '',
     })
@@ -440,7 +486,7 @@ function FlightSearchPage() {
 
       <div className="mb-6 flex flex-col gap-4">
         <label className="flex flex-col gap-1.5 text-sm font-medium text-(--sea-ink)">
-          Flight number
+          Flight number (optional if you pick airports)
           <input
             value={flightNumber}
             onChange={(e) => setFlightNumber(e.target.value.toUpperCase())}

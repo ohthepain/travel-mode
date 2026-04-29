@@ -148,6 +148,7 @@ function AirportsAdminPage() {
             <thead className="sticky top-0 bg-[var(--header-bg)]">
               <tr className="border-b border-[var(--line)]">
                 <th className="px-2 py-2 font-medium text-[var(--sea-ink)]">IATA</th>
+                <th className="px-2 py-2 font-medium text-[var(--sea-ink)]">Type</th>
                 <th className="px-2 py-2 font-medium text-[var(--sea-ink)]">Display</th>
                 <th className="px-2 py-2 font-medium text-[var(--sea-ink)]">City</th>
                 <th className="px-2 py-2 font-medium text-[var(--sea-ink)]">Country</th>
@@ -162,6 +163,7 @@ function AirportsAdminPage() {
                   className="border-b border-[var(--line)]/80 odd:bg-[var(--header-bg)]/40"
                 >
                   <td className="px-2 py-1.5 font-mono text-xs">{a.iata}</td>
+                  <td className="px-2 py-1.5 font-mono text-xs">{a.airportType}</td>
                   <td className="px-2 py-1.5 text-[var(--sea-ink-soft)]">{a.displayName}</td>
                   <td className="px-2 py-1.5 text-[var(--sea-ink-soft)]">{a.city}</td>
                   <td className="px-2 py-1.5 font-mono text-xs">{a.country}</td>

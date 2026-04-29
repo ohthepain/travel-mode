@@ -1,23 +1,79 @@
 import { Hono } from 'hono'
 import type { Prisma } from '../../../generated/prisma/client'
-import type { Airline, Airport, City } from '../../lib/flight-data'
+import type { Airline, Airport, City, FlightSchedule } from '../../lib/flight-data'
+import { parseFlightIata } from '../../lib/flight-iata'
+import type { AirlabsScheduleRow } from '../airlabs/api-types'
 import { prisma } from '../db'
 import { flightSyncUiState } from '../jobs/queue'
 import {
   fetchAirline,
   fetchAirport,
   fetchCity,
+  fetchFlightsDepArr,
+  fetchSchedulesArrFlight,
+  fetchSchedulesArrOnly,
+  fetchSchedulesDepArrFlight,
+  fetchSchedulesDepArrNoFlight,
+  fetchSchedulesDepFlight,
+  fetchSchedulesDepOnly,
   getAirlabsApiKey,
   mapAirlineRow,
   mapAirportRow,
   mapCityRow,
 } from '../airlabs/client'
-import { getFlightSchedules, refTtlMs } from '../airlabs/resolve-schedule'
+import {
+  airlabsLiveFlightRowToFlightSchedule,
+  airlabsScheduleRowToFlightSchedule,
+  getFlightSchedules,
+  refTtlMs,
+} from '../airlabs/resolve-schedule'
 
 const flightScheduleRoutes = new Hono()
 const airportRoutes = new Hono()
 const airlineRoutes = new Hono()
 const cityRoutes = new Hono()
+
+function dedupeSchedulesByLegAndTime(
+  rows: FlightSchedule[],
+): FlightSchedule[] {
+  const seen = new Set<string>()
+  const out: FlightSchedule[] = []
+  for (const s of rows) {
+    const k = `${s.departure.time}|${s.departure.airport}|${s.arrival.airport}`
+    if (seen.has(k)) continue
+    seen.add(k)
+    out.push(s)
+  }
+  return out.sort((a, b) =>
+    a.departure.time.localeCompare(b.departure.time),
+  )
+}
+
+/** Label parseable by `parseFlightIata` for mapping a timetable row without a caller-supplied flight. */
+function flightLabelForScheduleRow(r: AirlabsScheduleRow): string | null {
+  const fiRaw =
+    typeof r.flight_iata === 'string'
+      ? r.flight_iata.replace(/\s+/g, '').toUpperCase()
+      : ''
+  if (fiRaw) {
+    const p = parseFlightIata(fiRaw)
+    if (p.ok) return p.flightIata
+  }
+  const air =
+    typeof r.airline_iata === 'string'
+      ? r.airline_iata.trim().toUpperCase()
+      : ''
+  const numRaw =
+    typeof r.flight_number === 'string'
+      ? r.flight_number.replace(/\s+/g, '')
+      : ''
+  if (air && numRaw) {
+    const combined = `${air}${numRaw}`
+    const p = parseFlightIata(combined)
+    if (p.ok) return p.flightIata
+  }
+  return null
+}
 
 flightScheduleRoutes.get('/', async (c) => {
   if (!getAirlabsApiKey()) {
@@ -28,25 +84,120 @@ flightScheduleRoutes.get('/', async (c) => {
   }
   const fn = c.req.query('flightNumber')?.trim()
   const date = c.req.query('date')?.trim()
-  if (!fn) {
-    return c.json({ error: 'flightNumber is required' }, 400)
+  const rawDep = c.req.query('dep_iata')?.trim()
+  const rawArr = c.req.query('arr_iata')?.trim()
+  const dep_iata =
+    rawDep && /^[A-Z]{3}$/i.test(rawDep) ? rawDep.toUpperCase() : undefined
+  const arr_iata =
+    rawArr && /^[A-Z]{3}$/i.test(rawArr) ? rawArr.toUpperCase() : undefined
+
+  if (!fn && !dep_iata && !arr_iata) {
+    return c.json(
+      {
+        error:
+          'Provide flightNumber (optional with airports) and/or dep_iata and/or arr_iata.',
+      },
+      400,
+    )
   }
-  if (date != null && date.length > 0) {
+
+  const parsed = fn ? parseFlightIata(fn) : null
+  if (fn && (!parsed || !parsed.ok)) {
+    return c.json({ error: 'invalid flightNumber' }, 400)
+  }
+
+  /** Set when `flightNumber` parses as a valid IATA flight id; used for airline API filters. */
+  const flightParsed = parsed && parsed.ok ? parsed : null
+
+  if (!dep_iata && !arr_iata && date != null && date.length > 0) {
     const d = new Date(`${date.slice(0, 10)}T00:00:00.000Z`)
     if (Number.isNaN(d.getTime())) {
       return c.json({ error: 'invalid date' }, 400)
     }
   }
+
   try {
-    const schedules = await getFlightSchedules(
-      fn,
-      date && date.length > 0 ? date.slice(0, 10) : null,
-    )
+    const fetchedAt = new Date().toISOString()
+
+    let schedules: FlightSchedule[]
+
+    if (dep_iata && arr_iata) {
+      const flightIata = flightParsed?.flightIata
+      const liveRows = await fetchFlightsDepArr(
+        dep_iata,
+        arr_iata,
+        flightIata
+          ? { flightIata, limit: 100 }
+          : { limit: 100 },
+      )
+      const fromLive = liveRows
+        .map((r) =>
+          flightIata
+            ? airlabsLiveFlightRowToFlightSchedule(r, fetchedAt, flightIata)
+            : airlabsLiveFlightRowToFlightSchedule(r, fetchedAt),
+        )
+        .filter((x): x is FlightSchedule => x != null)
+
+      const timetableRows =
+        flightIata != null
+          ? await fetchSchedulesDepArrFlight(dep_iata, arr_iata, flightIata)
+          : await fetchSchedulesDepArrNoFlight(dep_iata, arr_iata)
+
+      const fromSchedules = timetableRows
+        .map((r) => {
+          const lab = flightLabelForScheduleRow(r)
+          if (!lab) return null
+          return airlabsScheduleRowToFlightSchedule(r, fetchedAt, lab)
+        })
+        .filter((x): x is FlightSchedule => x != null)
+
+      schedules = dedupeSchedulesByLegAndTime([
+        ...fromLive,
+        ...fromSchedules,
+      ])
+    } else if (dep_iata) {
+      const raw = flightParsed
+        ? await fetchSchedulesDepFlight(dep_iata, flightParsed.flightIata)
+        : await fetchSchedulesDepOnly(dep_iata)
+      schedules = dedupeSchedulesByLegAndTime(
+        raw
+          .map((r) => {
+            const lab = flightParsed?.flightIata ?? flightLabelForScheduleRow(r)
+            if (!lab) return null
+            return airlabsScheduleRowToFlightSchedule(r, fetchedAt, lab)
+          })
+          .filter((x): x is FlightSchedule => x != null),
+      )
+    } else if (arr_iata) {
+      const raw = flightParsed
+        ? await fetchSchedulesArrFlight(arr_iata, flightParsed.flightIata)
+        : await fetchSchedulesArrOnly(arr_iata)
+      schedules = dedupeSchedulesByLegAndTime(
+        raw
+          .map((r) => {
+            const lab = flightParsed?.flightIata ?? flightLabelForScheduleRow(r)
+            if (!lab) return null
+            return airlabsScheduleRowToFlightSchedule(r, fetchedAt, lab)
+          })
+          .filter((x): x is FlightSchedule => x != null),
+      )
+    } else {
+      if (!fn) {
+        return c.json(
+          { error: 'flightNumber is required when airports are not specified' },
+          400,
+        )
+      }
+      schedules = await getFlightSchedules(
+        fn,
+        date && date.length > 0 ? date.slice(0, 10) : null,
+      )
+    }
     const uniqueFns = [
       ...new Set(
         schedules.map((s) => s.flightNumber.replace(/\s+/g, '').toUpperCase()),
       ),
-    ]
+    ].filter((n) => n.length > 0)
     const syncList = await Promise.all(
       uniqueFns.map((n) => flightSyncUiState(n)),
     )

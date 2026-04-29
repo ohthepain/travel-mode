@@ -1,4 +1,5 @@
-import type { Airport } from './airports-data'
+import type { CatalogAirport } from './flight-data'
+import { catalogAirportFacilityRank } from './flight-data'
 import { parseCsv } from './csv-parse'
 
 /** Types dropped from the catalog (OurAirports `type`). */
@@ -9,16 +10,6 @@ const EXCLUDED_TYPES = new Set([
   'close',
   'balloonport',
 ])
-
-const TYPE_RANK: Record<string, number> = {
-  large_airport: 4,
-  medium_airport: 3,
-  seaplane_base: 2,
-}
-
-function typeRank(t: string): number {
-  return TYPE_RANK[t] ?? 1
-}
 
 /** ISO 3166-1 alpha-2 after trim + uppercase; false if not two letters A–Z. */
 export function normalizeIsoCountry(raw: string): string | null {
@@ -90,7 +81,7 @@ function rowToRaw(cols: string[], idx: Record<string, number>): RawRow | null {
  * Keeps rows with 3-letter IATA, non-excluded types, valid ISO country, deduped by IATA
  * (prefers larger facility types when duplicates exist).
  */
-export function airportsFromOurAirportsCsv(text: string): Airport[] {
+export function airportsFromOurAirportsCsv(text: string): CatalogAirport[] {
   const bomStripped = text.replace(/^\uFEFF/, '')
   const rows = parseCsv(bomStripped.trimEnd())
   if (rows.length < 2) return []
@@ -106,15 +97,16 @@ export function airportsFromOurAirportsCsv(text: string): Airport[] {
     iata: headerIndex(header, 'iata_code'),
   }
 
-  const best = new Map<string, { rank: number; airport: Airport }>()
+  const best = new Map<string, { rank: number; airport: CatalogAirport }>()
 
   for (let r = 1; r < rows.length; r++) {
     const cols = rows[r]
     const raw = rowToRaw(cols, idx)
     if (!raw) continue
 
-    const airport: Airport = {
+    const airport: CatalogAirport = {
       displayName: buildAirportDisplayName(raw.name, raw.iata),
+      airportType: raw.type,
       iata: raw.iata,
       name: raw.name,
       city: raw.municipality,
@@ -123,7 +115,7 @@ export function airportsFromOurAirportsCsv(text: string): Airport[] {
       lon: raw.lon,
     }
 
-    const rank = typeRank(raw.type)
+    const rank = catalogAirportFacilityRank(raw.type)
     const prev = best.get(raw.iata)
     if (!prev || rank > prev.rank) {
       best.set(raw.iata, { rank, airport })
@@ -135,7 +127,7 @@ export function airportsFromOurAirportsCsv(text: string): Airport[] {
     .sort((a, b) => a.iata.localeCompare(b.iata))
 }
 
-export function airportsToJsonBlob(airports: Airport[]): Blob {
+export function airportsToJsonBlob(airports: CatalogAirport[]): Blob {
   return new Blob([`${JSON.stringify(airports, null, 2)}\n`], {
     type: 'application/json',
   })
